@@ -52,6 +52,8 @@ pub struct ChannelDto {
     pub probe_latency_ms: Option<i64>,
     // --- Multi-key: extra API keys for load balancing (migration 023) ---
     pub extra_keys: Vec<ChannelKeyDto>,
+    /// 渠道级自定义上游请求头（敏感值原样返回给已进入管理面的前端）。
+    pub request_headers: Vec<crate::db::models::ChannelRequestHeaderInput>,
 }
 
 /// Masked DTO for a channel API key entry.
@@ -112,6 +114,11 @@ impl From<Channel> for ChannelDto {
             last_probe_ok: c.last_probe_ok,
             probe_latency_ms: c.probe_latency_ms,
             extra_keys: Vec::new(), // populated by to_dto_with_keys
+            request_headers: serde_json::from_str::<serde_json::Value>(&c.config)
+                .ok()
+                .and_then(|v| v.get("request_headers").cloned())
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default(),
         }
     }
 }

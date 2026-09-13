@@ -25,6 +25,28 @@ impl Repository {
         &self.pool
     }
 
+    /// 将请求头写入 config，避免为一个可选配置破坏旧版数据库兼容性。
+    fn config_with_request_headers(
+        mut config: serde_json::Value,
+        headers: Option<&[ChannelRequestHeaderInput]>,
+    ) -> String {
+        if let Some(headers) = headers {
+            let sanitized: Vec<serde_json::Value> = headers
+                .iter()
+                .filter(|h| !h.name.trim().is_empty())
+                .map(|h| serde_json::json!({
+                    "name": h.name.trim(),
+                    "value": h.value,
+                    "status": h.status.unwrap_or(1),
+                }))
+                .collect();
+            if let Some(object) = config.as_object_mut() {
+                object.insert("request_headers".to_string(), serde_json::Value::Array(sanitized));
+            }
+        }
+        serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string())
+    }
+
     // ==================== Channel ====================
 
     pub async fn get_all_channels(&self) -> Result<Vec<Channel>, sqlx::Error> {
@@ -368,11 +390,10 @@ impl Repository {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_iso();
         let models = serde_json::to_string(&input.models).unwrap_or_else(|_| "[]".to_string());
-        let config = input
-            .config
-            .as_ref()
-            .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or_else(|| "{}".to_string());
+        let config = Self::config_with_request_headers(
+            input.config.clone().unwrap_or_else(|| serde_json::json!({})),
+            input.request_headers.as_deref(),
+        );
         let model_mapping = input
             .model_mapping
             .as_ref()
@@ -505,6 +526,13 @@ impl Repository {
 
         let now = now_iso();
         let mut tx = self.pool.begin().await?;
+        let existing_config: serde_json::Value = sqlx::query_scalar("SELECT config FROM channels WHERE id = ?")
+            .bind(&input.id)
+            .fetch_one(&mut *tx)
+            .await
+            .ok()
+            .and_then(|raw: String| serde_json::from_str(&raw).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
 
         // STEP 1: write the legacy/business fields exactly as the payload
         // provides them (old frontend payloads). Naming type/base_url/config in
@@ -542,8 +570,9 @@ impl Repository {
         if let Some(weight) = input.weight {
             q.push(", weight = ").push_bind(weight);
         }
-        if let Some(config) = &input.config {
-            let c = serde_json::to_string(config).unwrap_or_else(|_| "{}".to_string());
+        if input.config.is_some() || input.request_headers.is_some() {
+            let config = input.config.clone().unwrap_or(existing_config.clone());
+            let c = Self::config_with_request_headers(config, input.request_headers.as_deref());
             q.push(", config = ").push_bind(c);
         }
         if let Some(mapping) = &input.model_mapping {

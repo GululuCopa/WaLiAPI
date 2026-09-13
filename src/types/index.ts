@@ -17,6 +17,20 @@ export interface ChannelKeyInput {
   status?: number;
 }
 
+/** 渠道级自定义上游请求头。status=1 启用，status=0 禁用。 */
+export interface ChannelRequestHeader {
+  id: string;
+  name: string;
+  value: string;
+  status: number;
+}
+
+export interface ChannelRequestHeaderInput {
+  name: string;
+  value: string;
+  status?: number;
+}
+
 export interface Channel {
   id: string;
   name: string;
@@ -49,6 +63,8 @@ export interface Channel {
   probe_latency_ms: number | null;
   /** Multi-key: extra API keys (masked in DTO, use getChannelExtraKeys for full). */
   extra_keys: ChannelKey[];
+  /** 渠道级自定义上游请求头。 */
+  request_headers: ChannelRequestHeader[];
 }
 
 export interface CreateChannelInput {
@@ -77,6 +93,8 @@ export interface CreateChannelInput {
   force_save?: boolean;
   /** Multi-key: additional API keys for load balancing. */
   extra_keys?: ChannelKeyInput[];
+  /** 渠道级自定义上游请求头。 */
+  request_headers?: ChannelRequestHeaderInput[];
 }
 
 export interface UpdateChannelInput {
@@ -108,6 +126,8 @@ export interface UpdateChannelInput {
   force_save?: boolean;
   /** Multi-key: replacement for extra keys (full replace semantics). */
   extra_keys?: ChannelKeyInput[];
+  /** 渠道级自定义上游请求头，整体替换。 */
+  request_headers?: ChannelRequestHeaderInput[];
 }
 
 export interface TestChannelResult {
@@ -648,6 +668,8 @@ export interface DraftChannelTestInput {
   native_endpoints?: ChannelEndpoint[];
   preset_revision?: string;
   legacy_executor_override?: string;
+  /** 渠道级自定义上游请求头。 */
+  request_headers?: ChannelRequestHeaderInput[];
 }
 
 // ── 上游模型同步（T14）─────────────────────────────────────────────────────────

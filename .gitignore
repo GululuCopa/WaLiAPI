@@ -56,3 +56,6 @@ test-results/
 playwright-report/
 # OpenSpec 本地变更规划，不随代码提交
 /openspec/
+/.workbuddy/memory/2026-09-09.md
+/.workbuddy/memory/2026-09-10.md
+/.workbuddy/memory/2026-09-13.md

@@ -123,6 +123,14 @@ interface FormState {
   legacy_executor_override?: string;
   // Multi-key: extra API keys for load balancing
   extra_keys: ExtraKeyItem[];
+  request_headers: RequestHeaderItem[];
+}
+
+interface RequestHeaderItem {
+  id: string;
+  name: string;
+  value: string;
+  enabled: boolean;
 }
 
 /** UI state for a single extra API key entry. */
@@ -156,6 +164,12 @@ function initForm(editing: Channel | null, duplicate = false): FormState {
       timeout_secs: editing.timeout_secs ?? 300,
       preset_revision: editing.preset_revision ?? null,
       legacy_executor_override: editing.legacy_executor_override ?? undefined,
+      request_headers: duplicate ? [] : ((editing.request_headers ?? []).map((h, index) => ({
+        id: h.id || `header_${index}`,
+        name: h.name,
+        value: h.value,
+        enabled: h.status !== 0,
+      }))),
       extra_keys: duplicate
         ? [] // 复制模式不复制额外 key（脱敏值无法还原）
         : (editing.extra_keys ?? []).map(k => ({
@@ -184,6 +198,7 @@ function initForm(editing: Channel | null, duplicate = false): FormState {
     timeout_secs: 300,
     preset_revision: null,
     extra_keys: [],
+    request_headers: [],
   };
 }
 
@@ -372,6 +387,28 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
     invalidateReceipt();
   }
 
+  function addRequestHeader() {
+    const id = `header_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setForm(prev => ({
+      ...prev,
+      request_headers: [...prev.request_headers, { id, name: "", value: "", enabled: true }],
+    }));
+    invalidateReceipt();
+  }
+
+  function updateRequestHeader(id: string, field: "name" | "value" | "enabled", value: string | boolean) {
+    setForm(prev => ({
+      ...prev,
+      request_headers: prev.request_headers.map(h => h.id === id ? { ...h, [field]: value } : h),
+    }));
+    invalidateReceipt();
+  }
+
+  function removeRequestHeader(id: string) {
+    setForm(prev => ({ ...prev, request_headers: prev.request_headers.filter(h => h.id !== id) }));
+    invalidateReceipt();
+  }
+
   function addExtraKey() {
     const tempId = `new_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     setForm(prev => ({
@@ -494,6 +531,9 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
       native_endpoints: form.native_endpoints,
       preset_revision: form.preset_revision || undefined,
       legacy_executor_override: form.legacy_executor_override,
+      request_headers: form.request_headers
+        .filter(h => h.name.trim() !== "")
+        .map(h => ({ name: h.name.trim(), value: h.value, status: h.enabled ? 1 : 0 })),
     };
   }
 
@@ -574,6 +614,9 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
           weight: k.weight,
           status: k.enabled ? 1 : 0,
         })),
+      request_headers: form.request_headers
+        .filter(h => h.name.trim() !== "")
+        .map(h => ({ name: h.name.trim(), value: h.value, status: h.enabled ? 1 : 0 })),
       ...(rf ?? {}),
     };
   }
@@ -609,6 +652,9 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
           weight: k.weight,
           status: k.enabled ? 1 : 0,
         })),
+      request_headers: form.request_headers
+        .filter(h => h.name.trim() !== "")
+        .map(h => ({ name: h.name.trim(), value: h.value, status: h.enabled ? 1 : 0 })),
       ...(rf ?? {}),
     };
   }
@@ -1056,6 +1102,36 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
                   💡 主 Key（#1）+ 额外 Keys 共同参与负载均衡，按权重随机选择。失效 Key 自动降级，请求转发至其他可用 Key。
                 </p>
               </div>
+            </div>
+
+            {/* 自定义上游请求头 */}
+            <div className="mt-4 rounded-xl border border-border bg-background/40 px-3.5 py-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div>
+                  <label className="block text-sm font-medium">自定义上游请求头</label>
+                  <p className="mt-1 text-xs text-muted-foreground">可选；仅启用的请求头会随请求发送，Authorization 等受保护请求头不会覆盖系统鉴权。</p>
+                </div>
+                <button type="button" onClick={addRequestHeader} className="flex items-center gap-1 rounded-lg border border-primary/30 bg-primary/8 px-2.5 py-1.5 text-xs font-medium text-primary transition-all hover:bg-primary/12">
+                  <Plus size={13} /> 添加请求头
+                </button>
+              </div>
+              {form.request_headers.length > 0 && (
+                <div className="space-y-2">
+                  {form.request_headers.map((h, idx) => (
+                    <div key={h.id} className={`rounded-lg border px-2.5 py-2 ${h.enabled ? "border-border bg-background/50" : "border-border bg-muted/30 opacity-60"}`}>
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 shrink-0 text-center text-xs text-muted-foreground">#{idx + 1}</span>
+                        <input value={h.name} onChange={e => updateRequestHeader(h.id, "name", e.target.value)} className="min-w-0 flex-1 rounded-lg border border-border bg-background/70 px-2.5 py-2 text-sm" placeholder="请求头名称，如 X-Project-ID" />
+                        <input value={h.value} onChange={e => updateRequestHeader(h.id, "value", e.target.value)} className="min-w-0 flex-[1.5] rounded-lg border border-border bg-background/70 px-2.5 py-2 text-sm" placeholder="请求头值" type="password" autoComplete="off" />
+                        <button type="button" onClick={() => updateRequestHeader(h.id, "enabled", !h.enabled)} className={`shrink-0 p-1.5 transition-colors ${h.enabled ? "text-green-500 hover:text-green-600" : "text-muted-foreground hover:text-foreground"}`} title={h.enabled ? "关闭" : "开启"}>
+                          <Power size={14} />
+                        </button>
+                        <button type="button" onClick={() => removeRequestHeader(h.id)} className="shrink-0 p-1.5 text-muted-foreground transition-colors hover:text-red-500" title="删除"><Trash2 size={14} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

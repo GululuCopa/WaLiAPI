@@ -4,7 +4,7 @@
 
 ### 本地 LLM API 网关 · 多协议接入 · 知识库 RAG · MCP 工具服务
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](./src-tauri/tauri.conf.json)
+[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)](./src-tauri/tauri.conf.json)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#-使用方式)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app)
@@ -40,19 +40,19 @@
 
 | | 贡献者 | GitHub | 提交 | 代码变更 | 主要贡献 |
 |:---:|:---|:---|:---:|:---|:---|
-| 🏆 | **小傅哥** | [@fuzhengwei](https://github.com/fuzhengwei) | 261 | `+60,062 / -6,901` | 项目创建者 · 核心架构 · 多渠道网关 · 协议转换 · 安全审计 · 知识库引擎 · Wiki 知识引擎 · MCP Server · Codex 账号切换 |
+| 🏆 | **小傅哥** | [@fuzhengwei](https://github.com/fuzhengwei) | 279 | `+60,888 / -7,205` | 项目创建者 · 核心架构 · 多渠道网关 · 协议转换 · 安全审计 · 知识库引擎 · Wiki 知识引擎 · MCP Server · Codex 账号切换 |
 | ⚡ | **xian** | [@zsxink](https://github.com/zsxink) | 140 | `+97,192 / -24,477` | Anthropic Messages 协议兼容 · 渠道协议重构（T01-T14）· codec 加固 · SSRF 防护 · SSE 帧重组 · models 接口 · Kimi Code Auth · protocol 模块结构化重构 · Auth 多格式导入 |
-| 🛠 | **chyuan** | [@chyuan-cuihongyuan](https://github.com/chyuan-cuihongyuan) | 33 | `+5,661 / -1,477` | 统一上游重试判定决策函数与真值表测试 · 401/403 下游脱敏 · 上游终态错误短路 · 数据库故障误报修复 · Anthropic 内置工具 400 修复 |
+| 🛠 | **chyuan** | [@chyuan-cuihongyuan](https://github.com/chyuan-cuihongyuan) | 55 | `+11,613 / -1,727` | 统一上游重试判定决策函数与真值表测试 · 渠道健康探测与候选排序 · 语义缓存 · 流式内容持久化与断线续传 · X-Request-Id / OTLP 可观测性 · 知识库增量索引、查询改写与混合检索 · 配额强化 · 401/403 下游脱敏 |
 | 🐳 | **Fla1337** | [@Fla1337](https://github.com/Fla1337) | 15 | `+4,978 / -1,143` | Web 管理面板 · Docker / headless 部署 · waliapi-web 二进制 · 多阶段镜像构建 · Web 管理面板用户设置 |
 | 🔧 | **mw** | [@maowei0427](https://github.com/maowei0427) | 10 | `+1,228 / -244` | 日志响应内容记录 · Trace ID 追踪 · 详情页体验优化 · 知识库 embedding 批次配置 |
-| 🔧 | **Nelson** | [@Zhengmingming1](https://github.com/Zhengmingming1) | 4 | `+3,086 / -120` | 知识库扫描版 PDF VLM OCR（方案A）· OCR 页级混合识别 · 修复 Claude 渠道协议适配 · OCR/Embedding 模型下拉按用途过滤 · pdfium macOS 打包路径修复 |
+| 🔧 | **Nelson** | [@Zhengmingming1](https://github.com/Zhengmingming1) | 15 | `+6,341 / -506` | 知识库扫描版 PDF VLM OCR（方案A）· 中文 PDF 与检索修复 · 知识库访问授权与连接检查 · RAG 来源、索引原子替换、缓存失效与导入源保留 · 修复 Claude 渠道协议适配 · pdfium macOS 打包路径修复 |
 | 🐞 | **xerina** | [@jiangnuonnuo](https://github.com/jiangnuonnuo) | 4 | `+257 / -82` | Wiki Unicode 文本切片 panic 进程崩溃修复 · 新增字符边界安全切片工具（utils/text.rs）· RAG/Wiki 设置保存后状态未即时更新修复（PR #60）|
-| 🐛 | **Jason** | [@freakojc](https://github.com/freakojc) | 3 | `+1,708 / -32` | 流式日志 499 误记修复 + Token 用量恢复（PR #62）· 仪表盘 cached_tokens 聚合覆盖索引消除 2 秒加载（PR #63）|
-| 🔧 | **yuanqixun** | [@yuanqixun](https://github.com/yuanqixun) | 4 | `+1,867 / -620` | 审计日志存储与加载优化（日志策略 + 明细分级，PR #75）· Codex 剩余额度展示 · 手动刷新 Codex 额度 · 大响应 SSE 帧兼容修复 |
+| 🐛 | **Jason** | [@freakojc](https://github.com/freakojc) | 6 | `+2,081 / -60` | 流式日志 499 误记修复 + Token 用量恢复 · 仪表盘 cached_tokens 聚合覆盖索引消除 2 秒加载 · 日志统计覆盖索引优化 · 探测日志降噪与恢复状态就地更新 |
+| 🔧 | **yuanqixun** | [@yuanqixun](https://github.com/yuanqixun) | 9 | `+2,745 / -665` | 审计日志存储与加载优化 · Codex 设备码登录 · Codex 剩余额度展示 · 手动刷新 Codex 额度 · 大响应 SSE 帧兼容修复 |
 | 🐛 | **cyd** | [@cydmacro](https://github.com/cydmacro) | 2 | `+105 / -9` | Codex 工具调用参数一次性下发，修复部分客户端截断 · Codex Responses 请求 strip `prompt_cache_options` 兼容修复（PR #59）|
 | 🔧 | **cham** | [@Cham1229](https://github.com/Cham1229) | 1 | `+444 / -111` | 自定义安全规则接入运行时安全扫描管道——规则加载·白名单短路·黑名单匹配·端到端集成测试（PR #64）|
 | 🐛 | **lianggq** | [@GQingL](https://github.com/GQingL) | 1 | `+91 / -9` | 日志日期筛选修复 · macOS 渠道删除按钮修复 |
-| 🐛 | **zjx** | [@Sadsunset3](https://github.com/Sadsunset3) | 6 | `+549 / -111` | Anthropic 容量错误提交前识别与跨协议故障切换 · sub2api 导入缺 account id 回退 chatgpt_user_id · 导入账号数即时刷新 · 账号操作后滚动位置保持 · Usage 连接测试请求头非中文占位修复 |
+| 🐛 | **zjx** | [@Sadsunset3](https://github.com/Sadsunset3) | 8 | `+1,058 / -134` | Anthropic 容量错误提交前识别与跨协议故障切换 · sub2api 导入兼容与账号数刷新 · Claude Code 网关鉴权初始化 · Codex Auth 写入跨平台修复 · 账号操作后滚动位置保持 |
 | 🐛 | **breezewonders** | [@breezewonders-dev](https://github.com/breezewonders-dev) | 1 | `+14 / -0` | Chat-to-Responses 转换 store 字段归一化修复 |
 
 </div>
@@ -676,6 +676,27 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 ---
 
 ## 📌 版本历史
+
+### v0.3.2 (2026-09-13)
+
+#### 知识库检索与数据安全
+
+- 🐛 **中文 PDF 与检索兼容性修复**：修复 PDF 部首字形、中文索引与向量检索漏召回问题，提升中文知识库检索稳定性
+- 🔒 **知识库访问授权**：API Key 支持配置知识库授权，REST 与 MCP 查询按授权范围开放，避免跨知识库读取
+- 🛡️ **RAG 来源与索引一致性修复**：来源列表只保留实际使用的上下文；模型变更时使旧向量缓存和索引失效；索引读改写串行化并原子保存；重建失败保留旧切片并原子替换；删除文档时保留导入源文件
+- 🧪 **RAG 授权与计费测试补强**：覆盖查询授权和模型调用计费等关键场景
+
+#### 渠道、日志与 Auth
+
+- ✨ **知识库权限管理界面**：新增知识库权限配置与连接检查入口，API Key 可按需授权知识库
+- ⚡ **日志统计性能优化**：使用覆盖索引服务日志聚合查询，替代已判定失效的旧索引方案
+- 🔇 **探测日志降噪**：审计日志仅记录渠道健康状态翻转，恢复状态就地更新，不再为每次探测新增日志
+- 🔐 **Claude Code 网关鉴权初始化**：补充网关鉴权 bootstrap 流程，并使 Codex Auth 写入逻辑跨平台
+
+#### 其他
+
+- 📝 **README 贡献者数据同步**：按当前仓库提交记录更新贡献者提交数与代码变更统计
+- 🔧 **版本号统一升级至 0.3.2**（package.json / Cargo.toml / tauri.conf.json / Cargo.lock）
 
 ### v0.3.1 (2026-09-10)
 

@@ -1009,6 +1009,24 @@ async fn send_request(
     for (k, v) in safe_headers {
         req = req.header(k, v);
     }
+    // 渠道级自定义请求头：仅发送启用项，并禁止覆盖网关鉴权与传输层受保护头。
+    if let Ok(config) = serde_json::from_str::<Value>(&channel.config) {
+        if let Some(headers) = config.get("request_headers").and_then(Value::as_array) {
+            for item in headers {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("").trim();
+                let value = item.get("value").and_then(Value::as_str).unwrap_or("");
+                let status = item.get("status").and_then(Value::as_i64).unwrap_or(1);
+                if !name.is_empty() && status != 0 && !is_unsafe_proxy_header(name) {
+                    if let (Ok(header_name), Ok(header_value)) = (
+                        reqwest::header::HeaderName::from_bytes(name.as_bytes()),
+                        reqwest::header::HeaderValue::from_str(value),
+                    ) {
+                        req = req.header(header_name, header_value);
+                    }
+                }
+            }
+        }
+    }
     req.json(&attempt.encoded_body)
         .send()
         .await

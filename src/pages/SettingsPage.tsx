@@ -221,22 +221,23 @@ export function SettingsPage() {
 
   return (
     <div className="page-shell space-y-5">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">设置</h1>
-          <p className="page-subtitle">分类管理服务、安全、界面与重试策略</p>
+      <div className="sticky top-0 z-30 -mx-7 -mt-7 mb-2 space-y-5 bg-[#f5f7fa]/95 px-7 pt-7 pb-2 backdrop-blur-md max-lg:-mx-5 max-lg:px-5 max-lg:pt-5">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">设置</h1>
+            <p className="page-subtitle">分类管理服务、安全、界面与重试策略</p>
+          </div>
+          <button onClick={handleSave} className="action-primary">
+            {saved ? <Check size={16} /> : <Save size={16} />}
+            {saved ? "已保存" : "保存设置"}
+          </button>
         </div>
-        <button onClick={handleSave} className="action-primary">
-          {saved ? <Check size={16} /> : <Save size={16} />}
-          {saved ? "已保存" : "保存设置"}
-        </button>
-      </div>
 
-      {message && <div className="surface-soft rounded-2xl px-4 py-3 text-sm text-primary">{message}</div>}
+        {message && <div className="surface-soft rounded-2xl px-4 py-3 text-sm text-primary">{message}</div>}
 
-      {/* Tab 标签页 */}
-      <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
-        {TABS.map(tab => {
+        {/* Tab 标签页 */}
+        <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
+          {TABS.map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
@@ -253,7 +254,8 @@ export function SettingsPage() {
               {tab.label}
             </button>
           );
-        })}
+          })}
+        </div>
       </div>
 
       {/* Tab 内容 */}

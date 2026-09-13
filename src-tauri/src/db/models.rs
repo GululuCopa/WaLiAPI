@@ -24,6 +24,15 @@ pub struct ChannelApiKeyInput {
     pub status: Option<i64>,
 }
 
+/// 渠道级自定义上游请求头。请求头默认启用，也可以单独禁用。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChannelRequestHeaderInput {
+    pub name: String,
+    pub value: String,
+    #[serde(default)]
+    pub status: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Channel {
     pub id: String,
@@ -102,6 +111,9 @@ pub struct CreateChannelInput {
     // --- Multi-key: additional API keys for load balancing (migration 023) ---
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_keys: Option<Vec<ChannelApiKeyInput>>,
+    // --- Custom upstream request headers (stored in config for compatibility) ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_headers: Option<Vec<ChannelRequestHeaderInput>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -147,6 +159,9 @@ pub struct UpdateChannelInput {
     // --- Multi-key: replacement for extra keys (full replace semantics) ---
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_keys: Option<Vec<ChannelApiKeyInput>>,
+    // --- Custom upstream request headers (full replace semantics) ---
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_headers: Option<Vec<ChannelRequestHeaderInput>>,
 }
 
 /// Import-write input (T09).  Unlike `CreateChannelInput` (whose repository

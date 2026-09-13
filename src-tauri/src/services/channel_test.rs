@@ -94,6 +94,9 @@ pub struct DraftChannelTestInput {
     pub native_endpoints: Option<Vec<String>>,
     pub preset_revision: Option<String>,
     pub legacy_executor_override: Option<String>,
+    /// 渠道级自定义上游请求头，status=1 时启用。
+    #[serde(default)]
+    pub request_headers: Option<Vec<crate::db::models::ChannelRequestHeaderInput>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -477,11 +480,22 @@ fn endpoint_kind(endpoint: &str) -> EndpointKind {
 #[allow(clippy::too_many_arguments)]
 fn draft_channel(input: &DraftChannelTestInput, api_key: &str, timeout_secs: i64) -> Channel {
     let models = serde_json::to_string(&input.models).unwrap_or_else(|_| "[]".to_string());
-    let config = input
-        .config
-        .as_ref()
-        .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()))
-        .unwrap_or_else(|| "{}".to_string());
+    let mut config_value = input.config.clone().unwrap_or_else(|| serde_json::json!({}));
+    if let Some(headers) = &input.request_headers {
+        let values: Vec<Value> = headers
+            .iter()
+            .filter(|h| !h.name.trim().is_empty())
+            .map(|h| serde_json::json!({
+                "name": h.name.trim(),
+                "value": h.value,
+                "status": h.status.unwrap_or(1),
+            }))
+            .collect();
+        if let Some(object) = config_value.as_object_mut() {
+            object.insert("request_headers".to_string(), Value::Array(values));
+        }
+    }
+    let config = serde_json::to_string(&config_value).unwrap_or_else(|_| "{}".to_string());
     let model_mapping = input
         .model_mapping
         .as_ref()
