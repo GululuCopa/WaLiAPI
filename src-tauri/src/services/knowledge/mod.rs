@@ -70,3 +70,5 @@ impl Service for KnowledgeService {
         routes::create_router(state)
     }
 }
+
+pub mod model_client;
