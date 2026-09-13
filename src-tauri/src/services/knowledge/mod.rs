@@ -13,6 +13,7 @@ pub mod repository;
 pub mod retriever;
 pub mod routes;
 pub mod splitter;
+pub mod text;
 pub mod upload;
 
 use super::{Service, ServiceStatus};
@@ -69,3 +70,5 @@ impl Service for KnowledgeService {
         routes::create_router(state)
     }
 }
+
+pub mod model_client;

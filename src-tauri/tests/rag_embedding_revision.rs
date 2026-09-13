@@ -267,3 +267,50 @@ async fn legacy_cache_is_compatible_until_the_effective_model_changes() {
         .unwrap();
     assert_eq!(repo.get_kb(&kb.id).await.unwrap().embedding_dim, 0);
 }
+
+#[tokio::test]
+async fn embedding_revision_upgrades_database_with_log_index_migration_039() {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let migrations = sqlx::migrate!("./migrations");
+    let previous = sqlx::migrate::Migrator {
+        migrations: migrations
+            .iter()
+            .filter(|m| m.version < 40)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into(),
+        ..sqlx::migrate::Migrator::DEFAULT
+    };
+    previous.run(&pool).await.unwrap();
+    sqlx::query("INSERT INTO kb_knowledge_bases (id, name, embedding_model, embedding_dim, created_at, updated_at) VALUES ('legacy', 'legacy', 'embed-legacy', 2, 'now', 'now')")
+        .execute(&pool).await.unwrap();
+    let before: (String, Vec<u8>) =
+        sqlx::query_as("SELECT description, checksum FROM _sqlx_migrations WHERE version = 39")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    // 039 已由日志覆盖索引使用，知识库版本升级必须作为新迁移执行。
+    migrations.run(&pool).await.unwrap();
+    migrations.run(&pool).await.unwrap();
+    let after: (String, Vec<u8>) =
+        sqlx::query_as("SELECT description, checksum FROM _sqlx_migrations WHERE version = 39")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(before, after);
+    let applied: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM _sqlx_migrations WHERE version = 40 AND success = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(applied, 1);
+    let kb = KbRepository::new(pool).get_kb("legacy").await.unwrap();
+    assert_eq!(kb.embedding_revision, 0);
+    assert_eq!(kb.embedding_dim, 2);
+    assert_eq!(kb.embedding_model.as_deref(), Some("embed-legacy"));
+}
