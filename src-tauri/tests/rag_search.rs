@@ -131,3 +131,47 @@ fn source_code_literals_are_not_normalized_as_pdf_text() {
         _ => panic!("expected code"),
     }
 }
+
+#[tokio::test]
+async fn document_replacement_updates_chinese_projection_and_rolls_back_together() {
+    let pool = fixture().await;
+    let repo = KbRepository::new(pool.clone());
+    let replacement = ChunkInsert {
+        id: "replacement".into(),
+        doc_id: "doc".into(),
+        kb_id: "kb".into(),
+        chunk_index: 0,
+        content: "并发线程池使用有界队列".into(),
+        token_count: 8,
+        embedding: retriever::encode_embedding(&[0.0, 1.0]),
+        embedding_dim: 2,
+        metadata: "{}".into(),
+        content_hash: Some("replacement-hash".into()),
+        created_at: "now".into(),
+    };
+    repo.replace_document_chunks("doc", "kb", &[replacement], None)
+        .await
+        .unwrap();
+    assert!(ids(&pool, "日志").await.is_empty());
+    assert_eq!(ids(&pool, "线程").await, ["replacement"]);
+    let invalid = ChunkInsert {
+        // 与另一文档冲突：插入失败必须回滚旧正文和 FTS 投影。
+        id: "other-chunk".into(),
+        doc_id: "doc".into(),
+        kb_id: "kb".into(),
+        chunk_index: 0,
+        content: "参数绑定预防注入".into(),
+        token_count: 6,
+        embedding: retriever::encode_embedding(&[1.0, 0.0]),
+        embedding_dim: 2,
+        metadata: "{}".into(),
+        content_hash: Some("invalid-hash".into()),
+        created_at: "now".into(),
+    };
+    assert!(repo
+        .replace_document_chunks("doc", "kb", &[invalid], None)
+        .await
+        .is_err());
+    assert_eq!(ids(&pool, "线程").await, ["replacement"]);
+    assert!(ids(&pool, "绑定").await.is_empty());
+}
