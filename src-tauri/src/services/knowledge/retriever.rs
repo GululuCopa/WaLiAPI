@@ -100,6 +100,23 @@ pub async fn search(
                     })
                     .collect();
 
+                // 切片事务先提交，后台索引随后更新；索引写入失败时差异还会持续。
+                // 只有有效节点与当前可检索切片完全一致才能采用近邻结果，
+                // 否则部分旧命中会掩盖新切片，或因删除节点而少返回结果。
+                let matches_chunks = index.len() == chunk_map.len()
+                    && index
+                        .nodes
+                        .iter()
+                        .filter(|node| !index.tombstones.contains(&node.id))
+                        .all(|node| chunk_map.contains_key(&node.id));
+                if !matches_chunks {
+                    tracing::debug!(
+                        "HNSW snapshot for KB {} is outdated, using linear scan",
+                        kb_id
+                    );
+                    return linear_search(pool, kb_id, query_embedding, top_k).await;
+                }
+
                 // Map chunk ID -> chunk data
                 let mapped: Vec<SearchResult> = hnsw_results
                     .into_iter()
@@ -215,6 +232,74 @@ async fn linear_search(
         .collect();
 
     Ok(results)
+}
+
+/// 管理命令与 REST 共用的文本检索入口，单库按指定模式执行。
+#[allow(clippy::too_many_arguments)]
+pub async fn search_query(
+    pool: &SqlitePool,
+    kb_id: Option<&str>,
+    query: &str,
+    top_k: usize,
+    search_mode: &str,
+    vector_weight: f32,
+    keyword_weight: f32,
+    fusion_mode: FusionMode,
+) -> Result<Vec<SearchResult>, String> {
+    let kb_id = kb_id.filter(|id| !id.is_empty());
+    if !matches!(search_mode, "keyword" | "vector" | "hybrid") {
+        return Err("不支持的检索模式".to_string());
+    }
+    let total_weight = vector_weight + keyword_weight;
+    if !vector_weight.is_finite()
+        || !keyword_weight.is_finite()
+        || vector_weight < 0.0
+        || keyword_weight < 0.0
+        || !total_weight.is_finite()
+        || total_weight <= 0.0
+    {
+        return Err("检索权重必须是有限非负数，且总和大于零".to_string());
+    }
+    if let Some(kb_id) = kb_id {
+        if search_mode == "keyword" {
+            return keyword_only_search(pool, kb_id, query, top_k).await;
+        }
+    }
+
+    let model = if let Some(kb_id) = kb_id {
+        KbRepository::new(pool.clone())
+            .get_kb(kb_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .embedding_model
+    } else {
+        None
+    };
+    let embeddings = super::embedder::embed(
+        &[query.to_string()],
+        model.as_deref().unwrap_or("text-embedding-3-small"),
+        &crate::db::repository::Repository::new(pool.clone()),
+    )
+    .await?;
+    let embedding = embeddings.first().ok_or("Failed to embed query")?;
+    match kb_id {
+        Some(kb_id) if search_mode == "hybrid" => {
+            hybrid_search(
+                pool,
+                kb_id,
+                query,
+                embedding,
+                top_k,
+                vector_weight,
+                keyword_weight,
+                fusion_mode,
+            )
+            .await
+        }
+        Some(kb_id) => search(pool, kb_id, embedding, top_k).await,
+        // 未指定知识库时沿用现有的跨库向量检索行为。
+        None => search_all(pool, embedding, top_k, false).await,
+    }
 }
 
 /// Search across all knowledge bases.
