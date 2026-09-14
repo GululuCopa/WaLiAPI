@@ -221,7 +221,7 @@ export interface RequestLog {
   stream_committed: boolean | null;
   upstream_type: "channel" | "auth_account" | string;
   /** 日志记录级别；摘要列表也会返回该字段。 */
-  detail_level?: "basic" | "detailed" | string;
+  detail_level?: "basic" | "brief" | "detailed" | string;
   /** 基本日志不提供正文，详细日志可按需加载。 */
   detail_available?: boolean;
   started_at?: string | null;

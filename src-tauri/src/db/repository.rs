@@ -1475,20 +1475,18 @@ impl Repository {
         .bind(log.client_cancelled)
         .bind(log.stream_committed)
         .bind(&log.upstream_type)
-        .bind(match policy.detail_level {
-            crate::audit_log::LogDetailLevel::Detailed => "detailed",
-            crate::audit_log::LogDetailLevel::Basic => "basic",
-        })
+        .bind(policy.detail_level.as_str())
         .execute(&self.pool)
         .await?;
         // 流式内容段（迁移 032）：detailed 策略下把流式累计内容同步落入溢出表，
-        // 日志详情与后续续传能力按 log_id 寻址；basic 尊重用户存储选择不落段。
+        // 日志详情与后续续传能力按 log_id 寻址；basic 尊重用户存储选择不落段，
+        // brief 只裁请求消息列表，响应内容仍需完整落段。
         // best-effort：段写入失败仅告警，不使主日志落账失败（主表行是权威记录）。
         // Responses 协议除外：driver 轨对该协议做**逐帧渐进持久化**（携带
         // response_id 续传锚点），本漏斗跳过以免同一流写两份内容。
         if log.is_stream == 1
             && log.mode != "responses"
-            && policy.detail_level == crate::audit_log::LogDetailLevel::Detailed
+            && policy.detail_level != crate::audit_log::LogDetailLevel::Basic
         {
             if let Some(content) = log.response_choices.as_deref() {
                 if !content.is_empty() {

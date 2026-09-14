@@ -5114,6 +5114,8 @@ mod list_models_tests {
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         let repo = Repository::new(pool.clone());
         repo.create_channel(&CreateChannelInput {
+            // v0.3.3 为该结构体新增了自定义请求头字段，测试构造点需同步补齐。
+            request_headers: None,
             name: "ch-a".to_string(),
             channel_type: "openai".to_string(),
             base_url: "http://example.com".to_string(),

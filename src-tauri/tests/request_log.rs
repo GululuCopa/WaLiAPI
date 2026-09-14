@@ -440,6 +440,13 @@ fn detailed_policy() -> waliapi_lib::audit_log::LogPolicy {
     }
 }
 
+fn brief_policy() -> waliapi_lib::audit_log::LogPolicy {
+    waliapi_lib::audit_log::LogPolicy {
+        detail_level: waliapi_lib::audit_log::LogDetailLevel::Brief,
+        retention_days: 7,
+    }
+}
+
 #[tokio::test]
 async fn stream_segments_persisted_only_under_detailed_policy_for_streams() {
     let pool = fresh_db().await;
@@ -528,4 +535,81 @@ async fn stream_segments_purged_by_all_delete_paths() {
     repo.create_log_with_policy(&again, detailed_policy()).await.unwrap();
     repo.delete_all_logs().await.unwrap();
     assert!(repo.get_stream_segments("again-log").await.unwrap().is_empty());
+}
+
+/// 关键不变式：「简要」只在**落库漏斗**上裁消息列表，绝不能碰到转发侧看到的请求记录。
+///
+/// 下游智能体（Codex / Claude Code）单次提交常带上百条历史消息，网关必须把它们**原样
+/// 转发**给上游供应商；"只留 3 条"仅是审计日志的存储与展示裁剪。本测试走真实的
+/// `create_log_with_policy`（内存 SQLite + 全量迁移），同时钉住四件事：
+///   1. 调用方持有的 `RequestLog` 逐字节不变（截断作用于克隆）；
+///   2. 落库的那一行才是裁到 3 条的、并带 `_wali_brief` 标记；
+///   3. 统计字段（token / 状态码 / 耗时 / 密钥 / 渠道）一个不少；
+///   4. 响应正文与流式内容段照旧落库（请求侧的裁剪不得牵连响应侧）。
+#[tokio::test]
+async fn brief_policy_truncates_only_the_stored_copy_not_the_forwarded_record() {
+    let pool = fresh_db().await;
+    let repo = Repository::new(pool);
+
+    // 模拟一次几百条消息的真实提交（这里 5 条即可复现语义，另加填充保证体积可辨）
+    let filler = "x".repeat(200);
+    let messages: Vec<serde_json::Value> = (0..5)
+        .map(|i| json!({"role": "user", "content": format!("m{}{}", i, filler)}))
+        .collect();
+    let original = json!({"model": "alias", "messages": messages}).to_string();
+
+    let mut log = full_log(Some("ch-1"), Some("ch-a"));
+    log.id = "brief-log".into();
+    log.request_body = Some(original.clone());
+    let response = json!({"choices": [{"message": {"content": "FULL ANSWER"}}]}).to_string();
+    log.response_choices = Some(response.clone());
+
+    repo.create_log_with_policy(&log, brief_policy())
+        .await
+        .expect("create brief log");
+
+    // 1) 转发侧的记录必须完好无损 —— 这是本测试存在的理由
+    assert_eq!(
+        log.request_body.as_deref(),
+        Some(original.as_str()),
+        "落库截断只能作用于克隆：调用方（请求转发路径）手里的原始正文不能被裁短"
+    );
+
+    // 2) 落库行才是被裁过的
+    let stored = repo.get_log(&log.id).await.expect("get brief log");
+    let body: serde_json::Value =
+        serde_json::from_str(stored.request_body.as_ref().expect("简要仍应保存正文")).unwrap();
+    let kept = body["messages"].as_array().expect("messages 应仍是数组");
+    assert_eq!(kept.len(), 3, "落库只应保留最新 3 条");
+    assert!(
+        kept[0]["content"].as_str().unwrap().starts_with("m2"),
+        "被丢掉的应是最旧的消息"
+    );
+    assert_eq!(body["_wali_brief"]["omitted_messages"], json!(2));
+
+    // 3) 统计口径不受影响
+    assert_eq!(stored.total_tokens, 15);
+    assert_eq!(stored.prompt_tokens, 10);
+    assert_eq!(stored.completion_tokens, 5);
+    assert_eq!(stored.status_code, 200);
+    assert_eq!(stored.duration_ms, 120);
+    assert_eq!(stored.api_key_id.as_deref(), Some("key-1"));
+    assert_eq!(stored.channel_id.as_deref(), Some("ch-1"));
+
+    // 4) 响应侧完整保留：正文照存、流式内容段照落
+    assert_eq!(stored.response_choices.as_deref(), Some(response.as_str()));
+    let segments = repo.get_stream_segments(&log.id).await.unwrap();
+    assert_eq!(
+        segments.len(),
+        1,
+        "brief 下流式内容段必须照落，不受请求侧裁剪牵连"
+    );
+    assert!(segments[0].1.contains("FULL ANSWER"));
+
+    let level: String = sqlx::query_scalar("SELECT detail_level FROM request_logs WHERE id = ?")
+        .bind(&log.id)
+        .fetch_one(repo.pool())
+        .await
+        .unwrap();
+    assert_eq!(level, "brief");
 }
