@@ -177,6 +177,8 @@ mod tests {
 
     fn draft(protocol: &str, base_url: &str) -> DraftChannelTestInput {
         DraftChannelTestInput {
+            // v0.3.3 为该结构体新增了自定义请求头字段，测试构造点需同步补齐。
+            request_headers: None,
             id: None,
             name: "t".to_string(),
             channel_type: match protocol {
