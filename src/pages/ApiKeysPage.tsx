@@ -159,8 +159,8 @@ export function ApiKeysPage() {
                       {k.status === 1 ? "已启用" : "已禁用"}
                     </span>
                     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
-                      <Database size={11} />
-                      {k.quota_limit > 0 ? `${k.quota_used} / ${k.quota_limit}` : "无限制"}
+                      <Zap size={11} />
+                      Token 配额：{k.quota_limit > 0 ? `${k.quota_used} / ${k.quota_limit}` : "不限"}
                     </span>
                     {k.expires_at && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700">
@@ -708,7 +708,7 @@ function ApiKeyForm({ editKey, onClose, onSaved }: { editKey?: ApiKey; onClose: 
               <input value={name} onChange={e => setName(e.target.value)} className="w-full rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm" placeholder="密钥名称" required />
             </div>
             <div className="w-40">
-              <label className="mb-2 block text-sm font-medium">配额 (-1 无限)</label>
+              <label className="mb-2 block text-sm font-medium">Token 配额 (-1 不限)</label>
               <input type="number" value={quotaLimit} onChange={e => setQuotaLimit(parseInt(e.target.value) || -1)} className="w-full rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm" />
             </div>
           </div>
