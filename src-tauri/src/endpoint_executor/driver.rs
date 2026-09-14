@@ -1567,12 +1567,13 @@ fn stream_response_body(
 ) -> impl futures_util::Stream<Item = Result<bytes::Bytes, std::io::Error>> {
     let mode_for_error = mode.clone();
     let snapshot = std::sync::Arc::new(std::sync::Mutex::new(StreamSnapshot::default()));
-    // Responses 逐帧持久化（续传锚点）：detailed 策略下，下游每帧 SSE 字节
+    // Responses 逐帧持久化（续传锚点）：非 basic 策略下，下游每帧 SSE 字节
     // 顺序落段表（seq 递增，response.id 从 response.created 帧提取）。
     // 客户端中途断开时已生成帧自然保留——「丢了」变成「可回放」。
+    // brief 只裁请求消息列表，响应侧的续传能力必须与 detailed 一致。
     let resume_frames_enabled = mode_for_error == "responses"
         && crate::audit_log::current_policy().detail_level
-            == crate::audit_log::LogDetailLevel::Detailed;
+            != crate::audit_log::LogDetailLevel::Basic;
     let resume_log_id = utils::id::new_id();
     let finalizer = StreamLogFinalizer {
         repo: repo.clone(),

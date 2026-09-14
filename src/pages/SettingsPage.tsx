@@ -590,9 +590,10 @@ export function SettingsPage() {
                   className={selectCls}
                 >
                   <option value="basic">基本</option>
+                  <option value="brief">简要</option>
                   <option value="detailed">详情</option>
                 </select>
-                <p className="mt-1 text-xs text-muted-foreground">基本模式只保存请求状态与用量摘要；详情模式会保存完整请求/响应正文，可能显著增加数据库大小。</p>
+                <p className="mt-1 text-xs text-muted-foreground">基本模式只保存请求状态与用量摘要；简要模式保存完整响应正文，但请求的消息列表只保留最新 3 条（Agent 长对话下可省下绝大部分空间）；详情模式保存完整请求与响应正文，可能显著增加数据库大小。三种模式的调用次数、成功率与 Token 用量统计完全一致。</p>
               </div>
               <div>
                 <label className="mb-2 block text-sm font-medium">日志保留期</label>

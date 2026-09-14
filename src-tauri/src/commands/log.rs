@@ -106,7 +106,8 @@ pub struct LogSummaryDto {
 
 impl From<crate::db::models::RequestLogSummary> for LogSummaryDto {
     fn from(s: crate::db::models::RequestLogSummary) -> Self {
-        let detail_available = s.detail_level == "detailed"
+        // 「简要」下请求正文已被裁短、响应正文完整，详情同样可看。
+        let detail_available = (s.detail_level == "detailed" || s.detail_level == "brief")
             && (s.request_body_bytes > 0 || s.response_choices_bytes > 0);
         let log = LogDto {
             id: s.id,

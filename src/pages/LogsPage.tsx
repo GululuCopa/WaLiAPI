@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { logApi } from "../lib/api";
 import type { RequestLog, SecurityFinding } from "../types";
@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 
 const PAGE_SIZE = 20;
+
+// 与 src-tauri/src/audit_log.rs 的 BRIEF_MARKER_KEY 保持一致：「简要」级别裁断
+// 请求消息列表后写回 JSON 顶层的标记字段名（前导下划线避开厂商真实字段）。
+const BRIEF_MARKER_KEY = "_wali_brief";
 
 const RISK_META: Record<string, { label: string; cls: string }> = {
   clean: { label: "安全", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -257,6 +261,22 @@ export function LogsPage() {
   pageRef.current = page;
   const expandedIdRef = useRef(expandedId);
   expandedIdRef.current = expandedId;
+
+  // 展开行的「置顶」需要表头的实际高度作为 sticky 偏移：Trace 列开关、字体缩放、
+  // 换行都会改变表头高度，写死像素值会露出下方滚过的内容，故实测后写进 CSS 变量。
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const wrap = tableWrapRef.current;
+    const head = wrap?.querySelector("thead");
+    if (!wrap || !head) return;
+    const apply = () =>
+      wrap.style.setProperty("--logs-thead-h", `${Math.ceil(head.getBoundingClientRect().height)}px`);
+    apply();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(apply);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, [showTraceColumn, logs.length]);
 
   const toggleAutoRefresh = () => {
     setAutoRefresh(prev => {
@@ -510,23 +530,26 @@ export function LogsPage() {
           ) : (
             <>
               {/* Table header + body share the scroll area */}
-              <div className="flex-1 overflow-auto">
-                <table className="w-full min-w-max table-auto text-sm">
-                  <thead className="sticky top-0 z-10 border-b border-border bg-white/90 backdrop-blur text-muted-foreground">
+              {/* 固定表格布局 + 百分比列宽：列宽只由 colgroup 决定，展开行的
+                  colSpan 大块内容不再能把「模型」列撑长、也不再让表头错位；
+                  总和 <100% 时余量全部给「模型」列，故永远不会出现横向滚动条。 */}
+              <div ref={tableWrapRef} className="flex-1 overflow-auto">
+                <table className="w-full table-fixed text-sm">
+                  <thead className="sticky top-0 z-20 border-b border-border bg-white/90 backdrop-blur text-muted-foreground">
                     <tr>
-                      <th className="w-8 px-2 py-3"></th>
-                      <th className="w-12 px-2 py-3 text-left font-medium">#</th>
-                      <th className="w-36 px-2 py-3 text-left font-medium">时间</th>
-                      {showTraceColumn && <th className="w-28 px-2 py-3 text-left font-medium">Trace ID</th>}
-                      <th className="w-24 px-2 py-3 text-left font-medium">密钥</th>
-                      <th className="w-24 px-2 py-3 text-left font-medium">上游</th>
+                      <th className="w-[4%] px-2 py-3"></th>
+                      <th className="w-[5%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">#</th>
+                      <th className="w-[10%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">时间</th>
+                      {showTraceColumn && <th className="w-[8%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">Trace ID</th>}
+                      <th className="w-[8%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">密钥</th>
+                      <th className="w-[10%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">上游</th>
                       <th className="px-2 py-3 text-left font-medium">模型</th>
-                      <th className="w-20 px-2 py-3 text-left font-medium">推理档位</th>
-                      <th className="w-20 px-2 py-3 text-left font-medium">状态</th>
-                      <th className="w-28 px-2 py-3 text-right font-medium">安全</th>
-                      <th className="w-28 px-2 py-3 text-right font-medium">Token</th>
-                      <th className="w-18 px-2 py-3 text-right font-medium">耗时</th>
-                      <th className="w-20 px-2 py-3">
+                      <th className="w-[8%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">推理档位</th>
+                      <th className="w-[7%] truncate px-2 py-3 text-left font-medium whitespace-nowrap">状态</th>
+                      <th className="w-[7%] truncate px-2 py-3 text-right font-medium whitespace-nowrap">安全</th>
+                      <th className="w-[9%] truncate px-2 py-3 text-right font-medium whitespace-nowrap">Token</th>
+                      <th className="w-[7%] truncate px-2 py-3 text-right font-medium whitespace-nowrap">耗时</th>
+                      <th className="w-[6%] px-2 py-3">
                         <button
                           onClick={() => setShowTraceColumn(!showTraceColumn)}
                           className={`flex items-center gap-1 text-[11px] font-medium transition-colors whitespace-nowrap ${showTraceColumn ? "text-blue-500" : "text-slate-400 hover:text-slate-600"}`}
@@ -651,8 +674,17 @@ function LogRow({
 }) {
   return (
     <>
-      <tr className="border-b border-white/6 transition-colors hover:bg-white/4">
-        <td className="px-3 py-2.5">
+      <tr
+        className={`border-b border-white/6 transition-colors hover:bg-white/4 ${
+          // 展开时把这一行钉在表头正下方：详情面板很长，滚到底后 ﹀ 会跟着滑出视口，
+          // 就没法再点它收纳。sticky 在 tr 上于 Chromium/WKWebView 表现不一致，
+          // 故逐格钉住，并用 inset shadow 保留随行移动的底部细分隔线。
+          expanded
+            ? "[&>td]:sticky [&>td]:top-[var(--logs-thead-h,44px)] [&>td]:z-10 [&>td]:bg-white [&>td]:shadow-[inset_0_-1px_0_rgba(15,23,42,0.08)]"
+            : ""
+        }`}
+      >
+        <td className="px-2 py-2.5">
           <button onClick={onToggle} className="text-muted-foreground hover:text-foreground transition-colors">
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
@@ -686,7 +718,7 @@ function LogRow({
             <span className="text-muted-foreground/50">-</span>
           )}
         </td>
-        <td className="px-2 py-2.5 text-xs">
+        <td className="overflow-hidden px-2 py-2.5 text-xs">
           <div className="flex items-center gap-1.5">
             <span className={`rounded-full px-2 py-0.5 ${log.status_code === 200 ? "bg-emerald-500/12 text-emerald-300" : "bg-red-500/12 text-red-300"}`}>
               {log.status_code}
@@ -695,12 +727,12 @@ function LogRow({
             {log.is_retry && <span className="text-amber-400 text-[10px]">retry</span>}
           </div>
         </td>
-        <td className="px-2 py-2.5 text-xs">
+        <td className="overflow-hidden px-2 py-2.5 text-xs">
           <div className="flex justify-end">
             <RiskBadge log={log} />
           </div>
         </td>
-        <td className="px-3 py-2.5 text-right text-xs align-middle">
+        <td className="overflow-hidden px-2 py-2.5 text-right text-xs align-middle">
           <div className="flex flex-col items-end gap-1" title={`Prompt: ${log.prompt_tokens}, Completion: ${log.completion_tokens}, Cached: ${log.cached_tokens ?? 0}`}>
             <div className="text-base font-semibold text-foreground tabular-nums tracking-tight leading-none">
               {log.total_tokens > 0 ? formatNumber(log.total_tokens) : <span className="text-muted-foreground/50">0</span>}
@@ -734,7 +766,7 @@ function LogRow({
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={13} className="px-4 py-4 bg-slate-50/80 border-b border-border align-top">
+          <td colSpan={showTraceColumn ? 13 : 12} className="px-4 py-4 bg-slate-50/80 border-b border-border align-top">
             <div className="min-w-0 max-w-full overflow-hidden">
               {detailLoading ? (
                 <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
@@ -832,6 +864,19 @@ function LogDetail({ log }: { log: RequestLog }) {
   const byteSize = log.request_body ? new Blob([log.request_body]).size : 0;
   const sizeLabel = byteSize > 1024 ? `${(byteSize / 1024).toFixed(1)} KB` : `${byteSize} B`;
 
+  // 「简要」级别把请求消息列表裁到最新 N 条后，会在 JSON 顶层留一个 _wali_brief 标记
+  // （与后端 BRIEF_MARKER_KEY 同名）。这里读出来告诉用户少看到了什么。
+  const briefRaw = parsed?.[BRIEF_MARKER_KEY] as Record<string, unknown> | undefined;
+  const briefMarker =
+    briefRaw && typeof briefRaw === "object"
+      ? {
+          omitted: Number(briefRaw.omitted_messages) || 0,
+          kept: Number(briefRaw.kept_messages) || 0,
+          originalBytes:
+            typeof briefRaw.original_bytes === "number" ? briefRaw.original_bytes : null,
+        }
+      : null;
+
   // Support both Chat Completions (messages) and Responses API (input) formats
   const rawMessages: Array<Record<string, unknown>> = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
   const rawInput: Array<Record<string, unknown>> = parsed && Array.isArray(parsed.input) ? parsed.input : [];
@@ -917,7 +962,10 @@ function LogDetail({ log }: { log: RequestLog }) {
   return (
     <div className="w-full min-w-0 space-y-4">
       {/* ── Gateway Metadata Cards ── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
+      {/* 指标方块：列数随可用宽度自动排布，minmax 的下界用 min(9rem,100%) 兜底，
+          保证任何窗口宽度下都不会超出展开单元格从而顶出横向滚动条；
+          [&>*]:min-w-0 让格子里的 truncate 真正生效（grid 子项默认 min-width:auto）。 */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(9rem,100%),1fr))] gap-3 [&>*]:min-w-0">
         {/* Token detail */}
         <div className="rounded-xl border border-slate-200 bg-white p-3 min-h-[120px] flex flex-col">
           <div className="flex items-center gap-1.5 text-xs text-slate-500"><Coins size={13} /> Token 消耗</div>
@@ -998,6 +1046,24 @@ function LogDetail({ log }: { log: RequestLog }) {
           </div>
         </div>
       </div>
+
+      {/* ── 简要级别的截断说明 ── */}
+      {briefMarker && briefMarker.omitted > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] leading-relaxed text-sky-800">
+          <span className="font-semibold">简要日志</span>
+          <span>
+            请求消息列表只保留最新 {briefMarker.kept} 条，已省略较早的 {briefMarker.omitted} 条；
+            响应内容与 Token 用量、状态码等统计完整保留。
+          </span>
+          {briefMarker.originalBytes != null && (
+            <span className="text-sky-600/90">
+              （原始请求 {briefMarker.originalBytes > 1048576
+                ? `${(briefMarker.originalBytes / 1048576).toFixed(1)} MB`
+                : `${(briefMarker.originalBytes / 1024).toFixed(1)} KB`}）
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Trace ID ── */}
       {(log.trace_id || log.downstream_endpoint) && (

@@ -241,11 +241,7 @@ pub fn get_feature_flags(
 pub async fn get_settings(state: tauri::State<'_, Arc<AppState>>) -> Result<Settings, String> {
     let store = &state.settings;
     let detail_level = get_str(store, "logs.detail_level", "basic");
-    let log_detail_level = if detail_level.eq_ignore_ascii_case("detailed") {
-        "detailed".to_string()
-    } else {
-        "basic".to_string()
-    };
+    let log_detail_level = crate::audit_log::normalize_detail_level(&detail_level).to_string();
     let log_retention_days =
         crate::audit_log::normalize_retention_days(get_u64(store, "logs.retention_days", 7));
     let settings = Settings {
@@ -294,10 +290,11 @@ pub async fn save_settings(
     settings: Settings,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    if !settings.log_detail_level.eq_ignore_ascii_case("basic")
-        && !settings.log_detail_level.eq_ignore_ascii_case("detailed")
+    if !(settings.log_detail_level.eq_ignore_ascii_case("basic")
+        || settings.log_detail_level.eq_ignore_ascii_case("brief")
+        || settings.log_detail_level.eq_ignore_ascii_case("detailed"))
     {
-        return Err("无效的日志级别，仅支持 basic 或 detailed".to_string());
+        return Err("无效的日志级别，仅支持 basic、brief 或 detailed".to_string());
     }
     if !matches!(settings.log_retention_days, 0 | 1 | 7 | 30 | 90) {
         return Err("无效的日志保留期，仅支持 1、7、30、90 天或永久".to_string());
