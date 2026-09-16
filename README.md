@@ -4,7 +4,7 @@
 
 ### 本地 LLM API 网关 · 多协议接入 · 知识库 RAG · MCP 工具服务
 
-[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)](./src-tauri/tauri.conf.json)
+[![Version](https://img.shields.io/badge/version-0.3.3-blue.svg)](./src-tauri/tauri.conf.json)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#-使用方式)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app)
@@ -40,14 +40,14 @@
 
 | | 贡献者 | GitHub | 提交 | 代码变更 | 主要贡献 |
 |:---:|:---|:---|:---:|:---|:---|
-| 🏆 | **小傅哥** | [@fuzhengwei](https://github.com/fuzhengwei) | 279 | `+60,888 / -7,205` | 项目创建者 · 核心架构 · 多渠道网关 · 协议转换 · 安全审计 · 知识库引擎 · Wiki 知识引擎 · MCP Server · Codex 账号切换 |
+| 🏆 | **小傅哥** | [@fuzhengwei](https://github.com/fuzhengwei) | 283 | `+61,165 / -7,262` | 项目创建者 · 核心架构 · 多渠道网关 · 协议转换 · 安全审计 · 知识库引擎 · Wiki 知识引擎 · MCP Server · Codex 账号切换 |
 | ⚡ | **xian** | [@zsxink](https://github.com/zsxink) | 140 | `+97,192 / -24,477` | Anthropic Messages 协议兼容 · 渠道协议重构（T01-T14）· codec 加固 · SSRF 防护 · SSE 帧重组 · models 接口 · Kimi Code Auth · protocol 模块结构化重构 · Auth 多格式导入 |
 | 🛠 | **chyuan** | [@chyuan-cuihongyuan](https://github.com/chyuan-cuihongyuan) | 55 | `+11,613 / -1,727` | 统一上游重试判定决策函数与真值表测试 · 渠道健康探测与候选排序 · 语义缓存 · 流式内容持久化与断线续传 · X-Request-Id / OTLP 可观测性 · 知识库增量索引、查询改写与混合检索 · 配额强化 · 401/403 下游脱敏 |
 | 🐳 | **Fla1337** | [@Fla1337](https://github.com/Fla1337) | 15 | `+4,978 / -1,143` | Web 管理面板 · Docker / headless 部署 · waliapi-web 二进制 · 多阶段镜像构建 · Web 管理面板用户设置 |
 | 🔧 | **mw** | [@maowei0427](https://github.com/maowei0427) | 10 | `+1,228 / -244` | 日志响应内容记录 · Trace ID 追踪 · 详情页体验优化 · 知识库 embedding 批次配置 |
-| 🔧 | **Nelson** | [@Zhengmingming1](https://github.com/Zhengmingming1) | 15 | `+6,341 / -506` | 知识库扫描版 PDF VLM OCR（方案A）· 中文 PDF 与检索修复 · 知识库访问授权与连接检查 · RAG 来源、索引原子替换、缓存失效与导入源保留 · 修复 Claude 渠道协议适配 · pdfium macOS 打包路径修复 |
+| 🔧 | **Nelson** | [@Zhengmingming1](https://github.com/Zhengmingming1) | 20 | `+7,247 / -634` | 知识库扫描版 PDF VLM OCR（方案A）· 中文 PDF 与检索修复 · 知识库访问授权与连接检查 · RAG 检索回归修复（管理搜索模式/权重、失败重导、索引落后回退、向量校验）· Token 配额标签澄清 · 修复 Claude 渠道协议适配 · pdfium macOS 打包路径修复 |
 | 🐞 | **xerina** | [@jiangnuonnuo](https://github.com/jiangnuonnuo) | 4 | `+257 / -82` | Wiki Unicode 文本切片 panic 进程崩溃修复 · 新增字符边界安全切片工具（utils/text.rs）· RAG/Wiki 设置保存后状态未即时更新修复（PR #60）|
-| 🐛 | **Jason** | [@freakojc](https://github.com/freakojc) | 6 | `+2,081 / -60` | 流式日志 499 误记修复 + Token 用量恢复 · 仪表盘 cached_tokens 聚合覆盖索引消除 2 秒加载 · 日志统计覆盖索引优化 · 探测日志降噪与恢复状态就地更新 |
+| 🐛 | **Jason** | [@freakojc](https://github.com/freakojc) | 8 | `+2,538 / -105` | 新增「简要」日志级别，请求消息列表只留最新 3 条（PR #119）· 日志统计覆盖索引优化 · 探测日志降噪与恢复状态就地更新 · 流式日志 499 误记修复 + Token 用量恢复 · 仪表盘 cached_tokens 聚合覆盖索引消除 2 秒加载 |
 | 🔧 | **yuanqixun** | [@yuanqixun](https://github.com/yuanqixun) | 9 | `+2,745 / -665` | 审计日志存储与加载优化 · Codex 设备码登录 · Codex 剩余额度展示 · 手动刷新 Codex 额度 · 大响应 SSE 帧兼容修复 |
 | 🐛 | **cyd** | [@cydmacro](https://github.com/cydmacro) | 2 | `+105 / -9` | Codex 工具调用参数一次性下发，修复部分客户端截断 · Codex Responses 请求 strip `prompt_cache_options` 兼容修复（PR #59）|
 | 🔧 | **cham** | [@Cham1229](https://github.com/Cham1229) | 1 | `+444 / -111` | 自定义安全规则接入运行时安全扫描管道——规则加载·白名单短路·黑名单匹配·端到端集成测试（PR #64）|
@@ -677,6 +677,32 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 
 ## 📌 版本历史
 
+### v0.3.3 (2026-09-16)
+
+#### 日志
+
+- ✨ **新增「简要」日志级别**：在「基本 / 详情」之外新增「简要」级别——请求消息列表只保留最新 3 条，长对话场景下可显著降低日志存储占用（PR #119）
+
+#### RAG 检索回归修复
+
+- 🐛 **管理搜索接口按模式和权重执行检索**：管理端搜索不再忽略检索模式与权重配置，与实际问答链路行为一致（PR #118）
+- 🐛 **失败文档不再阻止重新导入**：导入失败的文档允许直接重试相同内容，无需先清理残留数据（PR #118）
+- 🐛 **索引落后时回退完整检索**：向量索引落后于切片数据时自动回退到完整检索，避免漏召回（PR #118）
+- 🐛 **向量响应校验与索引对齐**：校验 Embedding 响应并按索引匹配输入文本，防止向量错位导致的检索结果异常（PR #118）
+
+#### 修复
+
+- 🐛 **Token 配额标签澄清**：API Key 的 Token 配额标签文案更明确，避免与知识库权限混淆（PR #117）
+- 🧪 **补齐 `request_headers` 测试字段**：修复 lib test 目标编译失败问题（PR #119）
+
+#### 其他
+
+- 📝 **README 贡献者数据同步**：按当前仓库提交记录更新贡献者提交数与代码变更统计，README 历史版本改为折叠展示
+- 🔧 **版本号统一升级至 0.3.3**（package.json / Cargo.toml / tauri.conf.json / Cargo.lock）
+
+<details>
+<summary>📜 查看历史版本（v0.3.2 及更早）</summary>
+
 ### v0.3.2 (2026-09-13)
 
 #### 知识库检索与数据安全
@@ -788,9 +814,6 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 - ✅ 新增 19 个单元测试覆盖配置恢复、Codex auth.json 检测/重置、流式空闲超时、首帧诊断、Retry-After 解析等场景
 - 📝 **README 贡献者数据同步**：新增 2 位贡献者 Jason（@freakojc，PR #62 #63）和 cham（@Cham1229，PR #64），按最新提交记录更新全体贡献者提交数与代码变更统计
 - 🔧 **版本号统一升级至 0.2.8**（package.json / Cargo.toml / tauri.conf.json / Cargo.lock）
-
-<details>
-<summary>📜 查看历史版本</summary>
 
 ### v0.2.7 (2026-09-02)
 
