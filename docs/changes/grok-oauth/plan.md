@@ -1,6 +1,15 @@
 # Grok OAuth provider
 
-状态：READY_FOR_EXECUTION
+状态：VERIFIED
+
+## 审核修复范围
+
+首次实现已完成，但 MASTER 审核发现以下 bounded findings，必须在提交前修复：
+
+1. replacement 登录不得直接覆盖新账号身份；必须校验新 token 的 account/subject 与原账号一致，不一致时 fail closed。
+2. Grok route profile 只允许 `responses` protocol；未知 protocol 必须不路由。
+3. 删除重复的 `#[test]` 属性。
+4. `verification_url` 仅允许 HTTPS 且 host 为 `x.ai` 或其子域，避免打开不可信 URL，并补充测试。
 
 ## 目标
 
@@ -98,3 +107,7 @@ pnpm build
 - 基线提交：`540dfb8` (`main` / `origin/main`)。
 - 预先存在的 dirty files：见 `git status --short`，共 12 个 Rust 文件；不得纳入本任务。
 - 未决问题：无阻塞性问题。若 xAI 官方实际端点/响应与公开参考不一致，按“停止并报告”处理。
+
+## 最终审核结论
+
+四项审核发现均已修复；目标测试、变更 Rust 文件格式检查、前端构建和 diff 检查均通过。13 个预先存在的无关 dirty 文件未纳入变更。
