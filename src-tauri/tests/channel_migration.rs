@@ -1082,4 +1082,32 @@ async fn preset_url_fixtures_new_and_legacy() {
         join(&row.base_url, "chat/completions"),
         "https://api.openai.com/v1/chat/completions"
     );
+
+    // 8) OpenAI / StepFun（阶跃星辰）：原生 URL 与 legacy 双写 URL 的最终拼接
+    //    结果均为官方地址，旧 type 双写为 openai（不是新造的 "stepfun"）。
+    let row = repo
+        .create_channel(&models::CreateChannelInput {
+            name: "fx-stepfun".into(),
+            channel_type: "".into(),
+            base_url: "".into(),
+            api_key: "sk".into(),
+            models: vec![],
+            protocol: Some("openai".into()),
+            provider: Some("stepfun".into()),
+            native_base_url: Some("https://api.stepfun.com/v1".into()),
+            native_endpoints: Some(vec!["chat_completions".into()]),
+            ..Default::default()
+        })
+        .await
+        .expect("create stepfun");
+    assert_eq!(row.channel_type, "openai");
+    assert_eq!(
+        join(row.native_base_url.as_deref().unwrap(), "chat/completions"),
+        "https://api.stepfun.com/v1/chat/completions"
+    );
+    assert_eq!(row.base_url, "https://api.stepfun.com/v1");
+    assert_eq!(
+        join(&row.base_url, "chat/completions"),
+        "https://api.stepfun.com/v1/chat/completions"
+    );
 }

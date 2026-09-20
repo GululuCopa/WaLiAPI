@@ -558,6 +558,26 @@ mod tests {
         assert_eq!(id.native_endpoints, vec!["chat_completions", "responses"]);
     }
 
+    /// 反向锁（StepFun 接入）：共享的 legacy openai 推断分支（非 api.openai.com
+    /// 一律 custom，T02 规则）不得因新厂商预设而被改坏——revision-0 且 type=openai、
+    /// base_url 指向 StepFun 主机的行，读时仍推断为 provider=custom。这条断言锁的
+    /// 是「不改共享分支」这一决定本身。
+    ///
+    /// executor 附注：legacy openai 型行按协议派生 `chat_completions`
+    /// （infer_legacy 的 "openai" 臂写死 ChatCompletions，见上文分支）；
+    /// `fallback_chat` 只在 unknown/custom type 兜底臂出现。本测试不改该行为，
+    /// 只是如实固定它。
+    #[test]
+    fn openai_stepfun_host_revision_zero_stays_custom() {
+        let id = resolve_channel_identity(&row("openai", "https://api.stepfun.com/v1", 0));
+        assert_eq!(id.protocol, "openai");
+        assert_eq!(id.provider, "custom");
+        assert_eq!(id.native_base_url, "https://api.stepfun.com/v1");
+        assert_eq!(id.native_endpoints, vec!["chat_completions"]);
+        assert_eq!(id.executor_kind, "chat_completions");
+        assert!(id.inferred);
+    }
+
     #[test]
     fn ollama_trailing_slash_v1_does_not_produce_v1_api_chat() {
         // "…:11434/v1/" (trailing slash after /v1) must collapse to the root,

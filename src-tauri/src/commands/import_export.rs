@@ -555,6 +555,7 @@ fn is_known_provider(s: &str) -> bool {
             | "doubao"
             | "doubao_coding_plan"
             | "moonshot"
+            | "stepfun"
             | "anthropic"
             | "ollama"
             | "custom"
@@ -1042,6 +1043,41 @@ mod tests {
         }
     }
 
+    /// A v2 StepFun（阶跃星辰）channel row written by the new dual-write path:
+    /// legacy type=openai + native openai/stepfun identity, disabled status and
+    /// a non-default timeout — the round-trip hazards named in the contract.
+    fn stepfun_v2_channel_fixture() -> Channel {
+        Channel {
+            id: "ch-3".into(),
+            name: "StepFun".into(),
+            channel_type: "openai".into(),
+            base_url: "https://api.stepfun.com/v1".into(),
+            api_key: "sk-stepfun-1234567890".into(),
+            models: serde_json::to_string(&["step-5-preview".to_string()]).unwrap(),
+            status: 0, // disabled — must survive the round-trip
+            priority: 4,
+            weight: 2,
+            config: json!({ "custom_unknown_key": "keep-me" }).to_string(),
+            model_mapping: json!({ "alias": ["up-a", "up-b"] }).to_string(),
+            model_mapping_disabled: "[]".into(),
+            timeout_secs: 90, // non-default — must survive
+            protocol: Some("openai".into()),
+            provider: Some("stepfun".into()),
+            native_base_url: Some("https://api.stepfun.com/v1".into()),
+            native_endpoints: Some("[\"chat_completions\"]".into()),
+            preset_revision: Some("2026-08-06".into()),
+            identity_revision: 1,
+            legacy_executor_override: None,
+            created_at: "2026-09-20T00:00:00.000Z".into(),
+            updated_at: "2026-09-20T00:00:00.000Z".into(),
+            last_test_at: Some("2026-09-20T00:00:00.000Z".into()),
+            last_test_ok: Some(1),
+            last_probe_at: None,
+            last_probe_ok: None,
+            probe_latency_ms: None,
+        }
+    }
+
     /// A legacy v1 row (identity_revision 0, NULL identity fields) that the
     /// resolver must infer at read time.
     fn v1_channel_fixture() -> Channel {
@@ -1154,6 +1190,58 @@ mod tests {
             Some("https://api.deepseek.com/anthropic/v1")
         );
         assert_eq!(written.identity_revision, 1);
+    }
+
+    /// StepFun（阶跃星辰）v2 渠道往返：导出 → 导入 → 写库后身份逐项不变。
+    ///
+    /// 反向锁（注释说明）：若 `is_known_provider` 白名单缺少 "stepfun"，
+    /// `is_trusted_v2_identity` 判假 → 强制 revision 0 + legacy 推断（type=openai
+    /// 且 host 非 api.openai.com）→ provider 掉成 `custom`，厂商身份与 native
+    /// 字段全部丢失——本测试即红。既有 v2 fixture 是 deepseek/anthropic，覆盖
+    /// 不到 stepfun，故必须新增。
+    #[tokio::test]
+    async fn round_trip_v2_stepfun_preserves_identity_and_business_fields() {
+        let pool = test_pool().await;
+        let repo = Repository::new(pool);
+        let c = stepfun_v2_channel_fixture();
+
+        let exported = ExportedChannel::from(c.clone());
+        assert_eq!(exported.protocol.as_deref(), Some("openai"));
+        assert_eq!(exported.provider.as_deref(), Some("stepfun"));
+        assert_eq!(
+            exported.native_base_url.as_deref(),
+            Some("https://api.stepfun.com/v1")
+        );
+        assert_eq!(
+            exported.native_endpoints.as_deref(),
+            Some(&["chat_completions".to_string()][..])
+        );
+        assert_eq!(exported.channel_type, "openai");
+        assert_eq!(exported.base_url, "https://api.stepfun.com/v1");
+        assert_eq!(exported.identity_revision, Some(1));
+        assert!(is_trusted_v2_identity(&exported));
+
+        let input = exported_channel_to_import(&exported);
+        assert_eq!(input.identity_revision, 1, "v2 stepfun 身份必须被信任");
+        let written = repo.import_channel(&input).await.unwrap();
+
+        assert_business_fields_equal(&written, &c);
+        assert_config_and_mapping_preserved(&written, &c);
+        assert_eq!(written.channel_type, "openai");
+        assert_eq!(written.base_url, "https://api.stepfun.com/v1");
+        assert_eq!(written.protocol.as_deref(), Some("openai"));
+        assert_eq!(written.provider.as_deref(), Some("stepfun"));
+        assert_eq!(
+            written.native_base_url.as_deref(),
+            Some("https://api.stepfun.com/v1")
+        );
+        assert_eq!(written.identity_revision, 1);
+    }
+
+    /// 序列化契约三处之一（导入导出身份信任白名单）："stepfun" 必须被认得。
+    #[test]
+    fn known_provider_whitelist_accepts_stepfun() {
+        assert!(is_known_provider("stepfun"));
     }
 
     /// v1 channel -> export (identity inferred, revision 0) -> import -> DB.

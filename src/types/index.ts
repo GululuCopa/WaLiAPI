@@ -559,6 +559,7 @@ export type ChannelProvider =
   | "doubao"
   | "doubao_coding_plan"
   | "moonshot"
+  | "stepfun"
   | "anthropic"
   | "ollama"
   | "custom";
