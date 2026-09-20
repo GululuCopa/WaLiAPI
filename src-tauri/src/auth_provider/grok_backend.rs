@@ -98,6 +98,57 @@ impl GrokProvider {
             .ok_or(ProviderError::InvalidPayload)
     }
 
+    /// 清理 Grok Responses 不接受的 namespace 工具声明。
+    ///
+    /// grok-build 内部把 namespace 作为工具分组元数据使用，但它不是
+    /// Grok Responses `tools[].type` 的 wire-level 变体。这里仅移除该
+    /// marker，不猜测转换成 mcp/function，也不影响其他 provider。
+    fn normalize_responses_body(body: &Value) -> Value {
+        let Some(tools) = body.get("tools").and_then(Value::as_array) else {
+            return body.clone();
+        };
+
+        let mut normalized = body.clone();
+        let Some(object) = normalized.as_object_mut() else {
+            return body.clone();
+        };
+
+        let original_len = tools.len();
+        let filtered_tools: Vec<Value> = tools
+            .iter()
+            .filter(|tool| tool.get("type").and_then(Value::as_str) != Some("namespace"))
+            .cloned()
+            .collect();
+        let removed_count = original_len.saturating_sub(filtered_tools.len());
+
+        let tool_choice_is_namespace = object
+            .get("tool_choice")
+            .and_then(Value::as_object)
+            .and_then(|choice| choice.get("type"))
+            .and_then(Value::as_str)
+            == Some("namespace");
+
+        if removed_count == 0 && !tool_choice_is_namespace {
+            return body.clone();
+        }
+
+        if filtered_tools.is_empty() {
+            object.remove("tools");
+            object.remove("tool_choice");
+        } else {
+            object.insert("tools".to_owned(), Value::Array(filtered_tools));
+            if tool_choice_is_namespace {
+                object.remove("tool_choice");
+            }
+        }
+
+        tracing::debug!(
+            removed_namespace_tools = removed_count,
+            "normalized unsupported namespace tools for Grok Responses"
+        );
+        normalized
+    }
+
     fn identity_headers(access_token: &str, is_stream: bool) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
         let bearer = format!("Bearer {access_token}");
@@ -193,10 +244,11 @@ impl Provider for GrokProvider {
         let access_token = Self::access_token(request.payload)?;
         let mut headers = Self::identity_headers(&access_token, request.is_stream)?;
         Self::merge_safe_headers(&mut headers, request.headers);
+        let body = Self::normalize_responses_body(request.body);
         self.client
             .post(format!("{}/{RESPONSES_PATH}", self.api_base))
             .headers(headers)
-            .json(request.body)
+            .json(&body)
             .send()
             .await
             .map_err(|_| ProviderError::Retryable)
@@ -457,6 +509,94 @@ mod tests {
         assert!(crate::auth_provider::ProviderRegistry::new()
             .get(&ProviderKind::Grok)
             .is_ok());
+    }
+
+    #[test]
+    fn normalize_responses_body_removes_namespace_marker_only() {
+        let body = json!({
+            "model": "grok-4",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "read_file",
+                    "parameters": {"type": "object"}
+                },
+                {"type": "namespace", "name": "multi_agent_v1", "namespace": "multi_agent_v1"},
+                {"type": "mcp", "server_label": "github"}
+            ],
+            "tool_choice": {"type": "namespace", "name": "multi_agent_v1"}
+        });
+
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert_eq!(normalized["tools"].as_array().unwrap().len(), 2);
+        assert_eq!(normalized["tools"][0]["type"], "function");
+        assert_eq!(normalized["tools"][1]["type"], "mcp");
+        assert!(normalized.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn normalize_responses_body_removes_empty_namespace_tool_set() {
+        let body = json!({
+            "model": "grok-4",
+            "tools": [{"type": "namespace", "name": "multi_agent_v1"}],
+            "tool_choice": {"type": "namespace", "name": "multi_agent_v1"}
+        });
+
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert!(normalized.get("tools").is_none());
+        assert!(normalized.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn normalize_responses_body_keeps_supported_body_unchanged() {
+        let body = json!({
+            "model": "grok-4",
+            "tools": [{
+                "type": "function",
+                "name": "read_file",
+                "parameters": {"type": "object"}
+            }],
+            "tool_choice": "auto"
+        });
+
+        assert_eq!(GrokProvider::normalize_responses_body(&body), body);
+    }
+
+    #[tokio::test]
+    async fn responses_profile_filters_namespace_tools_before_http() {
+        let (provider, state) = mock_provider().await;
+        let body = json!({
+            "model": "grok-4",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "read_file",
+                    "parameters": {"type": "object"}
+                },
+                {"type": "namespace", "name": "multi_agent_v1", "namespace": "multi_agent_v1"}
+            ],
+            "tool_choice": {"type": "namespace", "name": "multi_agent_v1"}
+        });
+
+        provider
+            .outbound(req(
+                &account(),
+                &payload(),
+                &body,
+                "responses",
+                "responses",
+                false,
+                &HeaderMap::new(),
+            ))
+            .await
+            .unwrap();
+
+        let bodies = state.bodies.lock().unwrap();
+        let sent = &bodies[0];
+        let tools = sent["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["type"], "function");
+        assert!(sent.get("tool_choice").is_none());
     }
 
     #[tokio::test]
