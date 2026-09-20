@@ -471,7 +471,7 @@ fn provider_kind(provider: Option<String>) -> Result<ProviderKind, String> {
     let provider = provider.unwrap_or_else(|| "codex".to_owned());
     let kind = ProviderKind::from(provider.trim());
     match kind {
-        ProviderKind::Codex | ProviderKind::Kimi | ProviderKind::Gemini => Ok(kind),
+        ProviderKind::Codex | ProviderKind::Kimi | ProviderKind::Gemini | ProviderKind::Grok => Ok(kind),
         ProviderKind::Other(_) => Err("Unsupported auth provider".to_owned()),
     }
 }
@@ -1354,7 +1354,15 @@ mod tests {
         assert!(!gemini.supports_import);
         assert!(!gemini.supports_export);
         assert!(!gemini.supports_quota);
-        assert_eq!(providers.len(), 3);
+        let grok = providers.iter().find(|p| p.id == "grok").unwrap();
+        assert_eq!(grok.display_name, "Grok");
+        assert_eq!(grok.icon_key, "grok");
+        assert_eq!(grok.login_mode, "device_code");
+        assert_eq!(grok.login_methods, vec!["device_code".to_owned()]);
+        assert!(!grok.supports_import);
+        assert!(!grok.supports_export);
+        assert!(!grok.supports_quota);
+        assert_eq!(providers.len(), 4);
     }
 
     #[tokio::test]
@@ -1379,6 +1387,10 @@ mod tests {
         assert_eq!(
             provider_kind(Some("gemini".into())).unwrap(),
             ProviderKind::Gemini
+        );
+        assert_eq!(
+            provider_kind(Some("grok".into())).unwrap(),
+            ProviderKind::Grok
         );
         assert!(provider_kind(Some("nope".into())).is_err());
     }
@@ -1407,11 +1419,16 @@ mod tests {
             crate::auth_provider::AuthLoginMode::DeviceCode
         );
         assert_eq!(
+            resolve_login_method(&ProviderKind::Grok, None).unwrap(),
+            crate::auth_provider::AuthLoginMode::DeviceCode
+        );
+        assert_eq!(
             resolve_login_method(&ProviderKind::Codex, Some("device_code")).unwrap(),
             crate::auth_provider::AuthLoginMode::DeviceCode
         );
         assert!(resolve_login_method(&ProviderKind::Gemini, Some("device_code")).is_err());
         assert!(resolve_login_method(&ProviderKind::Kimi, Some("browser_callback")).is_err());
+        assert!(resolve_login_method(&ProviderKind::Grok, Some("browser_callback")).is_err());
         assert!(resolve_login_method(&ProviderKind::Codex, Some("unknown")).is_err());
     }
 
@@ -1495,6 +1512,10 @@ mod tests {
         assert_eq!(kind, ProviderKind::Kimi);
         assert_eq!(
             refuse_device_code_login(&kind),
+            Err("interactive_session_required".to_owned())
+        );
+        assert_eq!(
+            refuse_device_code_login(&ProviderKind::Grok),
             Err("interactive_session_required".to_owned())
         );
         // The same guard lets the loopback provider through.

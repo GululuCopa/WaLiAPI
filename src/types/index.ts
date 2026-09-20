@@ -301,7 +301,7 @@ export interface AuthLoginStart {
   sessionId: string;
 }
 
-export type AuthProviderId = "codex" | "kimi" | "gemini" | (string & {});
+export type AuthProviderId = "codex" | "kimi" | "gemini" | "grok" | (string & {});
 export type AuthLoginMethod = "browser_callback" | "device_code";
 
 export interface AuthProviderInfo {

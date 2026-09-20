@@ -45,6 +45,14 @@ const geminiSteps = [
   "同步模型",
 ];
 
+const grokSteps = [
+  "申请设备授权",
+  "打开 Grok 授权页",
+  "等待确认",
+  "交换令牌",
+  "保存账号",
+  "同步模型",
+];
 
 const codexDeviceSteps = [
   "申请设备授权",
@@ -97,7 +105,7 @@ export function LoginModal({
   );
   const isDevice = loginMethod === "device_code";
   const steps = isDevice
-    ? provider.id === "kimi" ? kimiSteps : codexDeviceSteps
+    ? provider.id === "kimi" ? kimiSteps : provider.id === "grok" ? grokSteps : codexDeviceSteps
     : provider.id === "gemini" ? geminiSteps : codexSteps;
   const isDesktop = isTauriRuntime();
 

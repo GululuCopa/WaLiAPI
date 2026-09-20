@@ -40,6 +40,7 @@ export function AccountCard({ account, pending, quotaPending, onEdit, onToggle, 
   const invalid = account.status === "invalid";
   const disabled = account.disabled;
   const isKimi = account.provider === "kimi";
+  const isGrok = account.provider === "grok";
   const isCodex = account.provider === "codex";
   const isGemini = account.provider === "gemini";
   const canExport = isCodex;
@@ -47,7 +48,7 @@ export function AccountCard({ account, pending, quotaPending, onEdit, onToggle, 
   const [showModels, setShowModels] = useState(false);
   const cardClass = `surface rounded-[24px] p-5 transition-all hover:shadow-lg ${disabled ? "opacity-65 saturate-50 shadow-none" : ""}`;
   const markClass = `flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-sm ${disabled ? "bg-muted-foreground/45" : "bg-success"}`;
-  const markIcon = isKimi ? "☾" : isGemini ? "G" : "⌘";
+  const markIcon = isKimi ? "☾" : isGemini ? "G" : isGrok ? "✦" : "⌘";
   const toggleClass = disabled
     ? "rounded-lg border border-success/20 bg-success/10 p-1.5 text-success hover:bg-success/15 hover:text-success"
     : "rounded-lg border border-warning/25 bg-warning/10 p-1.5 text-warning hover:bg-warning/15 hover:text-warning";
