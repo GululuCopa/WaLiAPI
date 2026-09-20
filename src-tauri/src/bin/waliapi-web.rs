@@ -7,8 +7,8 @@
 //!
 //! 环境变量：WALIAPI_SERVER_HOST / WALIAPI_SERVER_PORT / WALIAPI_DATA_DIR / XDG_DATA_HOME
 
-use waliapi_lib::web_server::{resolve_data_dir, run, WebServerConfig};
 use tracing_subscriber::prelude::*;
+use waliapi_lib::web_server::{resolve_data_dir, run, WebServerConfig};
 
 fn print_usage() {
     println!(

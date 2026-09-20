@@ -30,8 +30,9 @@ impl Dispatcher {
                 if models.is_empty() || models.iter().any(|m| m == requested_model) {
                     return true;
                 }
-                // Also check model_mapping keys — mapped model names are accepted.
-                let mapping: Value = serde_json::from_str(&c.model_mapping).unwrap_or_default();
+                // Also check model_mapping keys — mapped model names are accepted
+                // (disabled pairs excluded, migration 041).
+                let mapping = c.active_model_mapping();
                 if let Some(obj) = mapping.as_object() {
                     return obj.contains_key(requested_model);
                 }
@@ -50,7 +51,8 @@ impl Dispatcher {
 
     pub fn channel_to_config(channel: &Channel) -> ChannelConfig {
         let models: Vec<String> = serde_json::from_str(&channel.models).unwrap_or_default();
-        let model_mapping: Value = serde_json::from_str(&channel.model_mapping).unwrap_or_default();
+        // Disabled mapping pairs excluded (migration 041).
+        let model_mapping = channel.active_model_mapping();
         let extra: Value = serde_json::from_str(&channel.config).unwrap_or_default();
 
         ChannelConfig {
@@ -58,6 +60,7 @@ impl Dispatcher {
             api_key: channel.api_key.clone(),
             models,
             model_mapping,
+            proxy: crate::adaptor::ProxySetting::from_extra(&extra),
             extra,
             timeout_secs: channel.timeout_secs.max(1) as u64,
         }
@@ -70,6 +73,7 @@ mod tests {
 
     fn channel(id: &str, models: &[&str], priority: i64, weight: i64) -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: id.into(),
             name: format!("ch-{}", id),
             channel_type: "openai".into(),

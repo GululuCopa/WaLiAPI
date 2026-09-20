@@ -4,6 +4,7 @@ import type { ApiKey, CreateApiKeyInput, ApiKeyStats, Channel, AuthAccount } fro
 import { formatTime } from "../lib/constants";
 import { Plus, Key, Trash2, Power, X, Check, Copy, CalendarClock, Database, Activity, Clock, Zap, ChevronDown, ChevronRight, Pencil, AlertTriangle } from "lucide-react";
 import { writeClipboard } from "../lib/runtime";
+import { activeMappingFroms } from "../hooks/useModelMappings";
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -393,7 +394,7 @@ function ApiKeyForm({ editKey, onClose, onSaved }: { editKey?: ApiKey; onClose: 
     activeChannels.forEach(c => {
       const models = [
         ...c.models,
-        ...(c.model_mapping ? Object.keys(c.model_mapping) : []),
+        ...activeMappingFroms(c.model_mapping, c.model_mapping_disabled),
       ];
       opts.push({ id: c.id, label: c.name, group: "API 渠道", models: [...new Set(models)] });
     });
@@ -417,7 +418,7 @@ function ApiKeyForm({ editKey, onClose, onSaved }: { editKey?: ApiKey; onClose: 
     const modelSet = new Set<string>();
     activeChannels.forEach(c => {
       c.models.forEach(m => modelSet.add(m));
-      if (c.model_mapping) Object.keys(c.model_mapping).forEach(m => modelSet.add(m));
+      activeMappingFroms(c.model_mapping, c.model_mapping_disabled).forEach(m => modelSet.add(m));
     });
     activeAuthAccounts.forEach(a => {
       a.models.filter(m => !m.unavailable).forEach(m => modelSet.add(m.id));

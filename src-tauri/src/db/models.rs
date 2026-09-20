@@ -48,6 +48,10 @@ pub struct Channel {
     pub weight: i64,
     pub config: String,
     pub model_mapping: String,
+    /// 被关闭的映射对（迁移 041）：JSON 数组，元素为 [from, to]。
+    /// 空数组 = 全部映射开启。
+    #[sqlx(default)]
+    pub model_mapping_disabled: String,
     pub timeout_secs: i64,
     // --- T02 protocol identity columns (migration 015) ---
     pub protocol: Option<String>,
@@ -71,6 +75,82 @@ pub struct Channel {
     pub probe_latency_ms: Option<i64>,
 }
 
+impl Channel {
+    /// 解析 `model_mapping` 并剔除被关闭的映射对（迁移 041）。
+    /// 返回「当前生效」的映射 JSON；路由匹配、上游模型解析、
+    /// `/v1/models` 聚合都必须使用本方法而非直接读原始列。
+    pub fn active_model_mapping(&self) -> serde_json::Value {
+        let mapping: serde_json::Value =
+            serde_json::from_str(&self.model_mapping).unwrap_or_default();
+        filter_disabled_mapping(mapping, &self.model_mapping_disabled)
+    }
+}
+
+/// 从映射 JSON 中剔除被关闭的 [from, to] 对。
+///
+/// * 字符串值命中禁用对 → 整个 key 移除；
+/// * 数组值逐项过滤 → 全部被禁用则移除 key，只剩一项时折叠为字符串；
+/// * 禁用列表为空或解析失败 → 原样返回（fail-open 与历史行为一致）。
+pub fn filter_disabled_mapping(
+    mut mapping: serde_json::Value,
+    disabled_json: &str,
+) -> serde_json::Value {
+    let disabled: Vec<(String, String)> = serde_json::from_str::<Vec<Vec<String>>>(disabled_json)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|pair| {
+            let mut it = pair.into_iter();
+            let from = it.next()?;
+            let to = it.next()?;
+            Some((from, to))
+        })
+        .collect();
+    if disabled.is_empty() {
+        return mapping;
+    }
+    let Some(obj) = mapping.as_object_mut() else {
+        return mapping;
+    };
+    let is_disabled = |from: &str, to: &str| disabled.iter().any(|(df, dt)| df == from && dt == to);
+    let keys: Vec<String> = obj.keys().cloned().collect();
+    for from in keys {
+        let removed = match obj.get(&from) {
+            Some(serde_json::Value::String(s)) => {
+                if is_disabled(&from, s) {
+                    obj.remove(&from);
+                    true
+                } else {
+                    false
+                }
+            }
+            Some(serde_json::Value::Array(arr)) => {
+                let kept: Vec<serde_json::Value> = arr
+                    .iter()
+                    .filter(|v| v.as_str().map(|s| !is_disabled(&from, s)).unwrap_or(true))
+                    .cloned()
+                    .collect();
+                match kept.len() {
+                    0 => {
+                        obj.remove(&from);
+                        true
+                    }
+                    1 => {
+                        obj.insert(from.clone(), kept.into_iter().next().unwrap());
+                        true
+                    }
+                    _ => {
+                        obj.insert(from.clone(), serde_json::Value::Array(kept));
+                        true
+                    }
+                }
+            }
+            _ => false,
+        };
+        let _ = removed;
+    }
+    mapping
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CreateChannelInput {
     pub name: String,
@@ -83,6 +163,9 @@ pub struct CreateChannelInput {
     pub weight: Option<i64>,
     pub config: Option<serde_json::Value>,
     pub model_mapping: Option<serde_json::Value>,
+    /// 被关闭的映射对：JSON 数组，元素为 [from, to]（迁移 041）。
+    #[serde(default)]
+    pub model_mapping_disabled: Option<serde_json::Value>,
     pub timeout_secs: Option<i64>,
     // --- T02 protocol identity fields (all Option + serde(default)) ---
     // Missing => legacy inference from type/base_url/config.
@@ -130,6 +213,9 @@ pub struct UpdateChannelInput {
     pub weight: Option<i64>,
     pub config: Option<serde_json::Value>,
     pub model_mapping: Option<serde_json::Value>,
+    /// 被关闭的映射对：JSON 数组，元素为 [from, to]（迁移 041）。None = 保持不变。
+    #[serde(default)]
+    pub model_mapping_disabled: Option<serde_json::Value>,
     pub timeout_secs: Option<i64>,
     // --- T02 protocol identity fields. None = keep current value. ---
     #[serde(default)]
@@ -184,6 +270,9 @@ pub struct ImportChannelInput {
     pub weight: i64,
     pub config: serde_json::Value,
     pub model_mapping: serde_json::Value,
+    /// 被关闭的映射对：JSON 数组，元素为 [from, to]（迁移 041）。
+    #[serde(default)]
+    pub model_mapping_disabled: Option<serde_json::Value>,
     pub timeout_secs: i64,
     // --- T02 protocol identity columns (None => legacy-infer on read) ---
     #[serde(default)]
@@ -678,5 +767,89 @@ mod tests {
         let json = serde_json::to_string(&states).unwrap();
         let parsed: ModelStates = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.models[0].protocol.as_deref(), Some("anthropic"));
+    }
+}
+
+#[cfg(test)]
+mod mapping_disabled_tests {
+    use super::*;
+
+    #[test]
+    fn empty_disabled_list_returns_mapping_verbatim() {
+        let mapping = serde_json::json!({"auto": "m-a", "alias": ["m-b", "m-c"]});
+        let out = filter_disabled_mapping(mapping, "[]");
+        assert_eq!(out["auto"], "m-a");
+        assert_eq!(out["alias"], serde_json::json!(["m-b", "m-c"]));
+    }
+
+    #[test]
+    fn disabled_string_pair_removes_key() {
+        let mapping = serde_json::json!({"auto": "m-a", "keep": "m-z"});
+        let out = filter_disabled_mapping(mapping, r#"[["auto","m-a"]]"#);
+        assert!(out.get("auto").is_none());
+        assert_eq!(out["keep"], "m-z");
+    }
+
+    #[test]
+    fn disabled_array_pair_filters_targets_and_collapses_single() {
+        let mapping = serde_json::json!({"auto": ["m-a", "m-b", "m-c"]});
+        let out = filter_disabled_mapping(mapping, r#"[["auto","m-a"],["auto","m-c"]]"#);
+        assert_eq!(out["auto"], "m-b");
+
+        let mapping = serde_json::json!({"auto": ["m-a", "m-b"]});
+        let out = filter_disabled_mapping(mapping, r#"[["auto","m-b"]]"#);
+        assert_eq!(out["auto"], "m-a");
+
+        let mapping = serde_json::json!({"auto": ["m-a"]});
+        let out = filter_disabled_mapping(mapping, r#"[["auto","m-a"]]"#);
+        assert!(out.get("auto").is_none());
+    }
+
+    #[test]
+    fn malformed_disabled_list_fails_open() {
+        let mapping = serde_json::json!({"auto": "m-a"});
+        let out = filter_disabled_mapping(mapping, "not-json");
+        assert_eq!(out["auto"], "m-a");
+    }
+
+    #[test]
+    fn active_model_mapping_excludes_disabled_pairs() {
+        let mut ch = Channel {
+            id: "c1".into(),
+            name: "t".into(),
+            channel_type: "openai".into(),
+            base_url: "https://x/v1".into(),
+            api_key: "k".into(),
+            models: "[]".into(),
+            status: 1,
+            priority: 0,
+            weight: 1,
+            config: "{}".into(),
+            model_mapping: serde_json::json!({"auto": ["m-a", "m-b"]}).to_string(),
+            model_mapping_disabled: r#"[["auto","m-a"]]"#.into(),
+            timeout_secs: 300,
+            protocol: None,
+            provider: None,
+            native_base_url: None,
+            native_endpoints: None,
+            preset_revision: None,
+            identity_revision: 1,
+            legacy_executor_override: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+            last_test_at: None,
+            last_test_ok: None,
+            last_probe_at: None,
+            last_probe_ok: None,
+            probe_latency_ms: None,
+        };
+        assert_eq!(ch.active_model_mapping()["auto"], "m-b");
+
+        // 关闭列表清空后恢复全部映射
+        ch.model_mapping_disabled = "[]".into();
+        assert_eq!(
+            ch.active_model_mapping()["auto"],
+            serde_json::json!(["m-a", "m-b"])
+        );
     }
 }

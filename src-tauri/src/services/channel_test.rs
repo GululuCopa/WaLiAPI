@@ -87,6 +87,9 @@ pub struct DraftChannelTestInput {
     pub weight: Option<i64>,
     pub config: Option<Value>,
     pub model_mapping: Option<Value>,
+    /// 被关闭的映射对：JSON 数组，元素为 [from, to]（迁移 041）。
+    #[serde(default)]
+    pub model_mapping_disabled: Option<Value>,
     pub timeout_secs: Option<i64>,
     pub protocol: Option<String>,
     pub provider: Option<String>,
@@ -480,16 +483,21 @@ fn endpoint_kind(endpoint: &str) -> EndpointKind {
 #[allow(clippy::too_many_arguments)]
 fn draft_channel(input: &DraftChannelTestInput, api_key: &str, timeout_secs: i64) -> Channel {
     let models = serde_json::to_string(&input.models).unwrap_or_else(|_| "[]".to_string());
-    let mut config_value = input.config.clone().unwrap_or_else(|| serde_json::json!({}));
+    let mut config_value = input
+        .config
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
     if let Some(headers) = &input.request_headers {
         let values: Vec<Value> = headers
             .iter()
             .filter(|h| !h.name.trim().is_empty())
-            .map(|h| serde_json::json!({
-                "name": h.name.trim(),
-                "value": h.value,
-                "status": h.status.unwrap_or(1),
-            }))
+            .map(|h| {
+                serde_json::json!({
+                    "name": h.name.trim(),
+                    "value": h.value,
+                    "status": h.status.unwrap_or(1),
+                })
+            })
             .collect();
         if let Some(object) = config_value.as_object_mut() {
             object.insert("request_headers".to_string(), Value::Array(values));
@@ -501,6 +509,11 @@ fn draft_channel(input: &DraftChannelTestInput, api_key: &str, timeout_secs: i64
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()))
         .unwrap_or_else(|| "{}".to_string());
+    let model_mapping_disabled = input
+        .model_mapping_disabled
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()))
+        .unwrap_or_else(|| "[]".to_string());
     Channel {
         id: input.id.clone().unwrap_or_else(|| "draft".to_string()),
         name: input.name.clone(),
@@ -513,6 +526,7 @@ fn draft_channel(input: &DraftChannelTestInput, api_key: &str, timeout_secs: i64
         weight: input.weight.unwrap_or(1),
         config,
         model_mapping,
+        model_mapping_disabled,
         timeout_secs: timeout_secs.max(1),
         protocol: input.protocol.clone(),
         provider: input.provider.clone(),
@@ -1175,6 +1189,7 @@ mod channel_draft_test {
         key: &str,
     ) -> DraftChannelTestInput {
         DraftChannelTestInput {
+            model_mapping_disabled: None,
             // v0.3.3 为该结构体新增了自定义请求头字段，测试构造点需同步补齐。
             request_headers: None,
             id: None,
@@ -1864,6 +1879,7 @@ data: {"type":"message_stop"}
     /// the key blank without an explicit clear (the deadlock scenario).
     fn stored_ollama_channel(id: &str, key: &str) -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: id.to_string(),
             name: format!("ch-{id}"),
             channel_type: "openai".to_string(),
@@ -1993,6 +2009,7 @@ data: {"type":"message_stop"}
     async fn draft_key_openai_edit_blank_not_cleared_uses_stored_key() {
         let pool = fresh_pool().await;
         let channel = Channel {
+            model_mapping_disabled: "[]".into(),
             id: "ch-openai-1".to_string(),
             name: "ch-openai-1".to_string(),
             channel_type: "openai".to_string(),

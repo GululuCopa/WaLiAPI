@@ -301,6 +301,7 @@ mod tests {
         weight: i64,
     ) -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: id.into(),
             name: format!("ch-{}", id),
             channel_type: channel_type.into(),

@@ -79,7 +79,8 @@ impl Adaptor for GeminiAdaptor {
         let openai_body = &request.body;
         let gemini_body = convert_openai_to_gemini(openai_body);
 
-        let client = crate::adaptor::blocking_client(config.timeout_secs);
+        let proxy = config.proxy_url();
+        let client = crate::adaptor::blocking_client(config.timeout_secs, proxy.as_deref());
         let resp = client
             .post(&url)
             .header("Content-Type", "application/json")
@@ -122,7 +123,8 @@ impl Adaptor for GeminiAdaptor {
         let openai_body = &request.body;
         let gemini_body = convert_openai_to_gemini(openai_body);
 
-        let client = crate::adaptor::streaming_client();
+        let proxy = config.proxy_url();
+        let client = crate::adaptor::streaming_client(proxy.as_deref());
         let resp = client
             .post(&url)
             .header("Content-Type", "application/json")

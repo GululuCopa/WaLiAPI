@@ -76,6 +76,7 @@ fn channel(
     priority: i64,
 ) -> Channel {
     Channel {
+        model_mapping_disabled: "[]".into(),
         id: id.into(),
         name: format!("ch-{id}"),
         channel_type: if protocol == "anthropic" {

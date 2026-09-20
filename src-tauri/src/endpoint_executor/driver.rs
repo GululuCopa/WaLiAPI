@@ -2185,6 +2185,7 @@ mod tests {
 
     fn channel(protocol: Option<&str>, endpoints: &[&str]) -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: "ch-1".into(),
             name: "t".into(),
             channel_type: "claude".into(),

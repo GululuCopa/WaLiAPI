@@ -14,9 +14,12 @@ const iconFor = (key: string): string => {
 export function ProviderPills({
   selected,
   onSelect,
+  counts,
 }: {
   selected: string | null;
   onSelect: (providerId: string) => void;
+  /** 各 provider 下的账号数量（由页面基于全量账号列表统计传入） */
+  counts?: Record<string, number>;
 }) {
   const [providers, setProviders] = useState<AuthProviderInfo[]>([]);
   useEffect(() => {
@@ -35,6 +38,7 @@ export function ProviderPills({
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Auth 提供商">
       {clickable.map((provider) => {
         const active = selected === provider.id;
+        const count = counts?.[provider.id] ?? 0;
         return (
           <button
             key={provider.id}
@@ -46,6 +50,14 @@ export function ProviderPills({
           >
             <Command size={13} className="hidden" />
             <span>{iconFor(provider.iconKey)}</span> {provider.displayName}
+            {count > 0 && (
+              <span
+                className={`ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none ${active ? "bg-white/25 text-white" : "bg-primary/10 text-primary"}`}
+                title={`${provider.displayName} 已配置 ${count} 个账号`}
+              >
+                {count}
+              </span>
+            )}
             {active && <span className="h-1.5 w-1.5 rounded-full bg-white/90" aria-hidden="true" />}
           </button>
         );

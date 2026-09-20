@@ -761,7 +761,6 @@ mod tests {
         assert!(res.headers().get("x-cache").is_none());
     }
 
-
     #[tokio::test]
     async fn cors_only_covers_data_plane_not_service_routes() {
         let state = test_state().await;

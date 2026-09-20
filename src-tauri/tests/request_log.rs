@@ -455,8 +455,11 @@ async fn stream_segments_persisted_only_under_detailed_policy_for_streams() {
     // detailed + 流式 + 有内容 → 落段
     let mut log = full_log(None, Some("seg-1"));
     log.id = "stream-detailed".into();
-    log.response_choices = Some("{\"choices\":[{\"message\":{\"content\":\"部分生成内容\"}}]}".into());
-    repo.create_log_with_policy(&log, detailed_policy()).await.unwrap();
+    log.response_choices =
+        Some("{\"choices\":[{\"message\":{\"content\":\"部分生成内容\"}}]}".into());
+    repo.create_log_with_policy(&log, detailed_policy())
+        .await
+        .unwrap();
     let segments = repo.get_stream_segments("stream-detailed").await.unwrap();
     assert_eq!(segments.len(), 1, "detailed 流式应落一段");
     assert_eq!(segments[0].0, 1);
@@ -476,7 +479,10 @@ async fn stream_segments_persisted_only_under_detailed_policy_for_streams() {
     .await
     .unwrap();
     assert!(
-        repo.get_stream_segments("stream-basic").await.unwrap().is_empty(),
+        repo.get_stream_segments("stream-basic")
+            .await
+            .unwrap()
+            .is_empty(),
         "basic 不落段"
     );
 
@@ -485,9 +491,14 @@ async fn stream_segments_persisted_only_under_detailed_policy_for_streams() {
     log.id = "non-stream".into();
     log.is_stream = 0;
     log.response_choices = Some("{\"choices\":[]}".into());
-    repo.create_log_with_policy(&log, detailed_policy()).await.unwrap();
+    repo.create_log_with_policy(&log, detailed_policy())
+        .await
+        .unwrap();
     assert!(
-        repo.get_stream_segments("non-stream").await.unwrap().is_empty(),
+        repo.get_stream_segments("non-stream")
+            .await
+            .unwrap()
+            .is_empty(),
         "非流式不落段"
     );
 
@@ -495,9 +506,14 @@ async fn stream_segments_persisted_only_under_detailed_policy_for_streams() {
     let mut log = full_log(None, Some("seg-4"));
     log.id = "stream-empty".into();
     log.response_choices = None;
-    repo.create_log_with_policy(&log, detailed_policy()).await.unwrap();
+    repo.create_log_with_policy(&log, detailed_policy())
+        .await
+        .unwrap();
     assert!(
-        repo.get_stream_segments("stream-empty").await.unwrap().is_empty(),
+        repo.get_stream_segments("stream-empty")
+            .await
+            .unwrap()
+            .is_empty(),
         "无累计内容不落段"
     );
 }
@@ -516,25 +532,45 @@ async fn stream_segments_purged_by_all_delete_paths() {
     new.id = "new-log".into();
     new.created_at = now();
     new.response_choices = Some("new-content".into());
-    repo.create_log_with_policy(&old, detailed_policy()).await.unwrap();
-    repo.create_log_with_policy(&new, detailed_policy()).await.unwrap();
+    repo.create_log_with_policy(&old, detailed_policy())
+        .await
+        .unwrap();
+    repo.create_log_with_policy(&new, detailed_policy())
+        .await
+        .unwrap();
 
     // 按日期清理：只清旧的（段随主行走）
-    repo.delete_logs_before("2021-01-01T00:00:00+00:00").await.unwrap();
-    assert!(repo.get_stream_segments("old-log").await.unwrap().is_empty());
+    repo.delete_logs_before("2021-01-01T00:00:00+00:00")
+        .await
+        .unwrap();
+    assert!(repo
+        .get_stream_segments("old-log")
+        .await
+        .unwrap()
+        .is_empty());
     assert_eq!(repo.get_stream_segments("new-log").await.unwrap().len(), 1);
 
     // 单条删除：段随行走
     repo.delete_log("new-log").await.unwrap();
-    assert!(repo.get_stream_segments("new-log").await.unwrap().is_empty());
+    assert!(repo
+        .get_stream_segments("new-log")
+        .await
+        .unwrap()
+        .is_empty());
 
     // 全量清空
     let mut again = full_log(None, Some("again"));
     again.id = "again-log".into();
     again.response_choices = Some("again-content".into());
-    repo.create_log_with_policy(&again, detailed_policy()).await.unwrap();
+    repo.create_log_with_policy(&again, detailed_policy())
+        .await
+        .unwrap();
     repo.delete_all_logs().await.unwrap();
-    assert!(repo.get_stream_segments("again-log").await.unwrap().is_empty());
+    assert!(repo
+        .get_stream_segments("again-log")
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 /// 关键不变式：「简要」只在**落库漏斗**上裁消息列表，绝不能碰到转发侧看到的请求记录。

@@ -62,6 +62,9 @@ pub struct ExportedChannel {
     pub config: Option<Value>,
     #[serde(default)]
     pub model_mapping: Option<Value>,
+    /// 被关闭的映射对：JSON 数组，元素为 [from, to]（迁移 041；v1 文件缺省）。
+    #[serde(default)]
+    pub model_mapping_disabled: Option<Value>,
     #[serde(default)]
     pub timeout_secs: Option<i64>,
     #[serde(default)]
@@ -102,6 +105,10 @@ impl From<Channel> for ExportedChannel {
             ),
             model_mapping: Some(
                 serde_json::from_str(&c.model_mapping).unwrap_or(Value::Object(Default::default())),
+            ),
+            model_mapping_disabled: Some(
+                serde_json::from_str(&c.model_mapping_disabled)
+                    .unwrap_or(Value::Array(Default::default())),
             ),
             timeout_secs: Some(c.timeout_secs),
             last_test_at: c.last_test_at,
@@ -421,6 +428,11 @@ pub fn exported_channel_to_import(ch: &ExportedChannel) -> ImportChannelInput {
         .model_mapping
         .clone()
         .unwrap_or(Value::Object(Default::default()));
+    let model_mapping_disabled = Some(
+        ch.model_mapping_disabled
+            .clone()
+            .unwrap_or(Value::Array(Default::default())),
+    );
     let legacy_type = ch.channel_type.clone();
     let legacy_base = ch.base_url.clone();
     let file_rev = ch.identity_revision.unwrap_or(0);
@@ -482,6 +494,7 @@ pub fn exported_channel_to_import(ch: &ExportedChannel) -> ImportChannelInput {
         weight: ch.weight.unwrap_or(1),
         config,
         model_mapping,
+        model_mapping_disabled,
         timeout_secs: ch.timeout_secs.unwrap_or(300),
         protocol,
         provider,
@@ -998,6 +1011,7 @@ mod tests {
     /// hazards the contract calls out (design 11.4).
     fn v2_channel_fixture() -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: "ch-1".into(),
             name: "Anthropic-DS".into(),
             channel_type: "claude".into(),
@@ -1032,6 +1046,7 @@ mod tests {
     /// resolver must infer at read time.
     fn v1_channel_fixture() -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: "ch-2".into(),
             name: "Legacy-OpenAI".into(),
             channel_type: "openai".into(),

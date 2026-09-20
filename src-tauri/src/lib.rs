@@ -8,8 +8,8 @@ pub mod commands;
 pub mod core;
 pub mod db;
 mod endpoint_executor;
-mod otlp_exporter;
 pub mod health_probe;
+mod otlp_exporter;
 pub mod prompt_templates;
 mod protocol;
 #[cfg(test)]
@@ -245,6 +245,12 @@ pub fn run() {
                     tracing::warn!("[模板] 种子写入失败（运行时回退编译期默认）: {error}");
                 }
                 crate::audit_log::apply_settings(&state.settings);
+                // 全局出站代理（VPN 固定端口）：启动时从设置加载。
+                {
+                    let enabled = state.settings.get_bool("network.proxy.enabled", false);
+                    let url = state.settings.get_str("network.proxy.url", "");
+                    crate::adaptor::set_global_proxy(enabled.then_some(url));
+                }
                 tauri::async_runtime::spawn(crate::audit_log::run_maintenance_loop(
                     state.db.pool.clone(),
                     state.settings.clone(),
@@ -348,6 +354,7 @@ pub fn run() {
             commands::stats::get_model_stats,
             commands::stats::get_token_trend,
             commands::settings::get_settings,
+            commands::network::detect_local_proxies,
             commands::settings::get_feature_flags,
             commands::settings::save_settings,
             commands::settings::clear_semantic_cache,

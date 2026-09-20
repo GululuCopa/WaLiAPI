@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.4 (2026-09-20)
+
+### Auth 账号
+
+- ✨ **Grok OAuth 登录**：新增 Grok 渠道 OAuth 授权登录（`grok_login` / `grok_backend`），支持 Token 自动刷新与协议感知模型发现，Auth 渠道页可直接登录 Grok 账号（PR #122，@GululuCopa）
+- ✨ **Antigravity OAuth（Gemini）登录**：新增 Antigravity 作为 Gemini 渠道的 OAuth 登录方式（`gemini_backend`），Gemini 渠道支持 Antigravity 账号接入（PR #121，@GululuCopa）
+- 🐛 **Grok 与 Antigravity namespace 工具兼容**：兼容两者工具调用的 namespace 前缀，修复工具调用在协议转换中的匹配问题（@GululuCopa）
+
+### 渠道管理
+
+- ✨ **模型映射支持开启/关闭**（迁移 041）：每条模型映射可单独停用，`model_mapping_disabled` 记录被关闭的映射对；路由匹配、上游模型解析、`/v1/models` 聚合均跳过被关闭的映射；映射行点击开关即时切换，导入导出同步兼容该字段
+- ✨ **从 curl 导入渠道**：新建渠道表单支持粘贴任意 OpenAI / Anthropic / Ollama 兼容的 curl 命令，自动解析并一键填充协议、Base URL、API Key 与模型（支持 `\` 续行与各类引号转义）
+- ✨ **复制测试 curl**：渠道列表新增「复制测试 curl」，按渠道协议 / URL / 模型生成可直接执行的 curl 命令（含真实 API Key），粘贴到终端即可验证渠道连通性
+
 ## v0.3.3 (2026-09-16)
 
 ### 日志

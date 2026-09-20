@@ -124,7 +124,8 @@ impl Adaptor for ClaudeAdaptor {
             claude_body["temperature"] = temp;
         }
 
-        let client = crate::adaptor::blocking_client(config.timeout_secs);
+        let proxy = config.proxy_url();
+        let client = crate::adaptor::blocking_client(config.timeout_secs, proxy.as_deref());
         let resp = client
             .post(&url)
             .header("x-api-key", &config.api_key)
@@ -194,7 +195,8 @@ impl Adaptor for ClaudeAdaptor {
             claude_body["system"] = serde_json::Value::String(sys);
         }
 
-        let client = crate::adaptor::streaming_client();
+        let proxy = config.proxy_url();
+        let client = crate::adaptor::streaming_client(proxy.as_deref());
         let resp = client
             .post(&url)
             .header("x-api-key", &config.api_key)

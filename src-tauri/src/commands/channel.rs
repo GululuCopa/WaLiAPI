@@ -31,6 +31,8 @@ pub struct ChannelDto {
     pub weight: i64,
     pub config: serde_json::Value,
     pub model_mapping: serde_json::Value,
+    /// 被关闭的映射对（迁移 041）：[from, to][] 数组。
+    pub model_mapping_disabled: serde_json::Value,
     pub timeout_secs: i64,
     // --- normalized protocol identity (T02) ---
     pub protocol: String,
@@ -97,6 +99,8 @@ impl From<Channel> for ChannelDto {
                 .unwrap_or(serde_json::Value::Object(Default::default())),
             model_mapping: serde_json::from_str(&c.model_mapping)
                 .unwrap_or(serde_json::Value::Object(Default::default())),
+            model_mapping_disabled: serde_json::from_str(&c.model_mapping_disabled)
+                .unwrap_or(serde_json::Value::Array(Default::default())),
             timeout_secs: c.timeout_secs,
             protocol: identity.protocol,
             provider: identity.provider,
@@ -518,6 +522,12 @@ pub async fn test_channel_impl(
         extra: serde_json::from_str(&channel.config)
             .unwrap_or(serde_json::Value::Object(Default::default())),
         timeout_secs: channel.timeout_secs.max(1) as u64,
+        // 渠道测试同样走渠道级出站代理（与真实转发路径一致）。
+        proxy: {
+            let extra: serde_json::Value = serde_json::from_str(&channel.config)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            crate::adaptor::ProxySetting::from_extra(&extra)
+        },
     };
 
     let adaptor = get_adaptor(&channel.channel_type);

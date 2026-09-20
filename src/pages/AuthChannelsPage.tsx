@@ -125,6 +125,13 @@ export function AuthChannelsPage() {
     return () => { disposed = true; };
   }, []);
 
+  // 各 provider 的账号数量徽标：按全量账号列表统计（不含已删除账号）
+  const providerCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const account of accounts) counts[account.provider] = (counts[account.provider] ?? 0) + 1;
+    return counts;
+  }, [accounts]);
+
   const activeProvider = providers.find((p) => p.id === selectedProvider) ?? {
     id: selectedProvider,
     displayName: selectedProvider === "kimi" ? "Kimi Code" : selectedProvider === "gemini" ? "Antigravity" : selectedProvider === "grok" ? "Grok" : "Codex",
@@ -356,7 +363,7 @@ export function AuthChannelsPage() {
 
   return <div className="page-shell space-y-3"><div className="page-header sticky top-0 z-30 -mx-7 -mt-7 mb-2 flex-col bg-card/90 px-7 pt-3"><div className="flex w-full items-start justify-between gap-4 pb-1.5"><div><h1 className="page-title">渠道管理</h1><p className="page-subtitle mt-0.5">登录各厂商订阅账号，作为上游路由候选</p></div><div className="flex items-center gap-2"><button onClick={() => { setReloginAccount(null); setShowLogin(true); }} disabled={pendingId === "import"} className="action-primary"><KeyRound size={16} />登录账号</button>{activeProvider.supportsImport && <ImportDropdown busy={pendingId === "import"} providerId={activeProvider.id} onSelect={(format) => void importAuth(format)} />}</div></div><ChannelTabs refreshKey={channelTabRefreshKey} /></div>
     {notice && <div role="status" className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm ${notice.kind === "error" ? "border-destructive/25 bg-destructive/10 text-destructive" : notice.kind === "warning" ? "border-warning/25 bg-warning/10 text-warning" : "border-success/25 bg-success/10 text-success"}`}><span>{notice.message}</span><button onClick={() => setNotice(null)} aria-label="关闭提示"><X size={16} /></button></div>}
-    <ProviderPills selected={selectedProvider} onSelect={setSelectedProvider} />
+    <ProviderPills selected={selectedProvider} onSelect={setSelectedProvider} counts={providerCounts} />
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm text-muted-foreground">登录后作为路由候选并消耗订阅额度；开启 Auth 账号优先后，将优先使用。</p>
       <div className="flex items-center gap-2">

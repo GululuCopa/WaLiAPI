@@ -6,6 +6,7 @@ import { appConfigApi, serverApi, apiKeyApi, channelApi, authApi } from "../lib/
 import type { AppInfo, ConfigContent } from "../lib/api";
 import type { ServerStatus, Channel, ApiKey, AuthAccount } from "../types";
 import { makeKeyGuards } from "../lib/keyRules";
+import { activeMappingFroms } from "../hooks/useModelMappings";
 import {
   Terminal,
   Code2,
@@ -104,9 +105,7 @@ export function AppConfigPanel({ appName }: { appName: string }) {
       chList.forEach(c => {
         if (!channelAllowed(c.id)) return;
         c.models.forEach(m => { if (modelAllowed(m) && !ms.includes(m)) ms.push(m); });
-        if (c.model_mapping) {
-          Object.keys(c.model_mapping).forEach(from => { if (modelAllowed(from) && !ms.includes(from)) ms.push(from); });
-        }
+        activeMappingFroms(c.model_mapping, c.model_mapping_disabled).forEach(from => { if (modelAllowed(from) && !ms.includes(from)) ms.push(from); });
       });
       acctList.forEach(a => {
         if (a.disabled) return;
@@ -147,7 +146,7 @@ export function AppConfigPanel({ appName }: { appName: string }) {
         if (modelAllowed(m) && !realSeen.has(m)) { realSeen.add(m); real.push(m); }
       });
       if (c.model_mapping) {
-        Object.keys(c.model_mapping).forEach(from => {
+        activeMappingFroms(c.model_mapping, c.model_mapping_disabled).forEach(from => {
           if (modelAllowed(from) && !mappedSeen.has(from)) { mappedSeen.add(from); mapped.push(from); }
         });
       }

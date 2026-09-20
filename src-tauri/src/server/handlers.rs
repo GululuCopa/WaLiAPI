@@ -1477,9 +1477,9 @@ async fn native_anthropic_request(
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
     let client = if is_stream {
-        crate::adaptor::streaming_client()
+        crate::adaptor::streaming_client(config.proxy_url().as_deref())
     } else {
-        crate::adaptor::blocking_client(config.timeout_secs)
+        crate::adaptor::blocking_client(config.timeout_secs, config.proxy_url().as_deref())
     };
     let mut request = client
         .post(url)
@@ -1534,9 +1534,9 @@ async fn openai_messages_request(
         obj.insert("model".into(), serde_json::Value::String(um.clone()));
     }
     let client = if is_stream {
-        crate::adaptor::streaming_client()
+        crate::adaptor::streaming_client(config.proxy_url().as_deref())
     } else {
-        crate::adaptor::blocking_client(config.timeout_secs)
+        crate::adaptor::blocking_client(config.timeout_secs, config.proxy_url().as_deref())
     };
     let resp = client
         .post(url)
@@ -3949,15 +3949,12 @@ pub async fn handle_embeddings(
 
     let mut last_error = None;
     let start = std::time::Instant::now();
-    let client = crate::adaptor::blocking_client(
-        selected_channels
-            .first()
-            .map(|ch| ch.timeout_secs.max(1) as u64)
-            .unwrap_or(60),
-    );
 
     for (attempt, channel) in selected_channels.into_iter().take(max_attempts).enumerate() {
         let config = Dispatcher::channel_to_config(&channel);
+        // 出站代理按渠道解析（config.proxy 的 global/direct/custom + 全局设置）。
+        let client =
+            crate::adaptor::blocking_client(config.timeout_secs, config.proxy_url().as_deref());
         let upstream_model = resolve_mapped_model(&config.model_mapping, &model);
 
         // Build upstream embedding request — send directly to /embeddings
@@ -4279,8 +4276,7 @@ fn collect_config_models(
                 });
             }
         }
-        let mapping: serde_json::Value = serde_json::from_str(&ch.model_mapping)
-            .unwrap_or(serde_json::Value::Object(Default::default()));
+        let mapping = ch.active_model_mapping();
         if let Some(obj) = mapping.as_object() {
             for key in obj.keys() {
                 if visibility
@@ -4719,6 +4715,7 @@ mod anthropic_handler_tests {
             model_mapping: serde_json::json!({}),
             extra: serde_json::json!({}),
             timeout_secs: 60,
+            proxy: None,
         };
         assert_eq!(
             native_anthropic_url(&config, "messages", Some("beta=true")),
@@ -4842,6 +4839,7 @@ mod list_models_tests {
         mapping: serde_json::Value,
     ) -> crate::db::models::Channel {
         crate::db::models::Channel {
+            model_mapping_disabled: "[]".into(),
             id: name.to_string(),
             name: name.to_string(),
             channel_type: ch_type.to_string(),
@@ -5114,6 +5112,7 @@ mod list_models_tests {
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         let repo = Repository::new(pool.clone());
         repo.create_channel(&CreateChannelInput {
+            model_mapping_disabled: None,
             // v0.3.3 为该结构体新增了自定义请求头字段，测试构造点需同步补齐。
             request_headers: None,
             name: "ch-a".to_string(),

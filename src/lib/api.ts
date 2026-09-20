@@ -180,6 +180,18 @@ export const settingsApi = {
   getFeatureFlags: () => invoke<FeatureFlagsDto>("get_feature_flags"),
 };
 
+// 出站代理（VPN 固定转发端口）自动探测
+export interface ProxyCandidate {
+  url: string;
+  source: "env" | "scan" | string;
+  label: string;
+  latency_ms: number | null;
+}
+
+export const networkApi = {
+  detectLocalProxies: () => invoke<ProxyCandidate[]>("detect_local_proxies"),
+};
+
 // OCR 缓存管理（LLM OCR 页级结果缓存）
 export interface OcrCacheInfo {
   total_bytes: number;

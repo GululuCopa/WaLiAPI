@@ -4,22 +4,30 @@ import { useEffect, useState, useCallback, useRef } from "react";
 export interface MappingPair {
   from: string;
   to: string;
+  /** false = 该映射对已关闭（仅渠道映射支持；Auth 账号映射恒为 true）。 */
+  enabled: boolean;
 }
 
 export type ModelMapping = Record<string, string | string[]>;
 
 // ── serialize / deserialize ──────────────────────────────────────────────
-export function mappingToPairs(mapping?: ModelMapping | null): MappingPair[] {
+export function mappingToPairs(mapping?: ModelMapping | null, disabled?: string[][] | null): MappingPair[] {
   if (!mapping) return [];
+  const disabledSet = new Set((disabled ?? []).map(d => `${d[0] ?? ""}\u0000${d[1] ?? ""}`));
   return Object.entries(mapping).flatMap(([from, to]) => {
     const targets = Array.isArray(to) ? to : [to];
-    return targets.map(t => ({ from, to: t }));
+    return targets.map(t => ({
+      from,
+      to: t,
+      enabled: !disabledSet.has(`${from}\u0000${t}`),
+    }));
   });
 }
 
 export function pairsToMapping(pairs: MappingPair[]): ModelMapping {
   const obj: ModelMapping = {};
   pairs.forEach(m => {
+    if (!m.enabled) return; // 已关闭的映射不参与序列化（路由不可达）
     if (m.from.trim() && m.to.trim()) {
       const from = m.from.trim();
       const to = m.to.trim();
@@ -38,6 +46,29 @@ export function pairsToMapping(pairs: MappingPair[]): ModelMapping {
   return obj;
 }
 
+/** 收集被关闭的映射对 → model_mapping_disabled 序列化格式（[from, to][]）。 */
+export function pairsToDisabled(pairs: MappingPair[]): string[][] {
+  return pairs
+    .filter(m => !m.enabled && m.from.trim() && m.to.trim())
+    .map(m => [m.from.trim(), m.to.trim()]);
+}
+
+/** 渠道映射中仍然生效的映射名（剔除被关闭的 [from, to] 对后至少还有一个目标）。
+ *  用于「使用 / API 密钥 / 应用接入」等页面的模型列表聚合，与后端路由语义一致。 */
+export function activeMappingFroms(
+  mapping?: Record<string, string | string[]> | null,
+  disabled?: string[][] | null,
+): string[] {
+  if (!mapping) return [];
+  const disabledSet = new Set((disabled ?? []).map(d => `${d[0] ?? ""}\u0000${d[1] ?? ""}`));
+  const out: string[] = [];
+  for (const [from, to] of Object.entries(mapping)) {
+    const targets = Array.isArray(to) ? to : [to];
+    if (targets.some(t => !disabledSet.has(`${from}\u0000${t}`))) out.push(from);
+  }
+  return out;
+}
+
 // ── hook: useModelMappings ───────────────────────────────────────────────
 // `initial` is used for initialization and external re-initialization
 // (e.g. switching editing target). Internal edits are NOT round-tripped
@@ -51,8 +82,8 @@ export function pairsToMapping(pairs: MappingPair[]): ModelMapping {
 // once. Genuine external changes (e.g. switching editing target) produce a
 // different object that wasn't preceded by a `markSynced` call, so they
 // still trigger re-initialization.
-export function useModelMappings(initial?: ModelMapping | null) {
-  const [mappings, setMappings] = useState<MappingPair[]>(() => mappingToPairs(initial));
+export function useModelMappings(initial?: ModelMapping | null, initialDisabled?: string[][] | null) {
+  const [mappings, setMappings] = useState<MappingPair[]>(() => mappingToPairs(initial, initialDisabled));
   const skipNextSyncRef = useRef(false);
 
   useEffect(() => {
@@ -60,7 +91,7 @@ export function useModelMappings(initial?: ModelMapping | null) {
       skipNextSyncRef.current = false;
       return;
     }
-    setMappings(mappingToPairs(initial));
+    setMappings(mappingToPairs(initial, initialDisabled));
   }, [initial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const markSynced = useCallback(() => {
@@ -68,7 +99,7 @@ export function useModelMappings(initial?: ModelMapping | null) {
   }, []);
 
   const addMapping = useCallback((defaultTo: string) => {
-    setMappings(prev => [...prev, { from: "", to: defaultTo }]);
+    setMappings(prev => [...prev, { from: "", to: defaultTo, enabled: true }]);
   }, []);
 
   const removeMapping = useCallback((idx: number) => {
@@ -83,9 +114,14 @@ export function useModelMappings(initial?: ModelMapping | null) {
     setMappings(prev => prev.map((m, i) => (i === idx ? { ...m, [field]: value } : m)));
   }, []);
 
+  /** 开/关单条映射对（渠道映射专用）。 */
+  const toggleMapping = useCallback((idx: number) => {
+    setMappings(prev => prev.map((m, i) => (i === idx ? { ...m, enabled: !m.enabled } : m)));
+  }, []);
+
   const existingFroms = Array.from(new Set(mappings.map(m => m.from).filter(Boolean))).sort();
 
-  return { mappings, addMapping, removeMapping, removeByTarget, updateMapping, existingFroms, markSynced };
+  return { mappings, addMapping, removeMapping, removeByTarget, updateMapping, toggleMapping, existingFroms, markSynced };
 }
 
 // ── hook: useGlobalFroms ─────────────────────────────────────────────────

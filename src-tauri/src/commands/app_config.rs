@@ -525,9 +525,7 @@ fn apply_waliapi_claude_code_settings(
         if let Some(value) = env.get(key) {
             let is_target_key = value.as_str() == Some(waliapi_key);
             let is_managed = previously_managed_env.iter().any(|managed| managed == key);
-            if !is_target_key
-                && !is_managed
-            {
+            if !is_target_key && !is_managed {
                 return Err(format!(
                     "Claude Code 已存在非 WaLiAPI 管理的 {key}；为保护现有凭证未写入。请先在 settings.json 中移除或手动选择一种认证方式"
                 ));
@@ -538,7 +536,10 @@ fn apply_waliapi_claude_code_settings(
                     .zip(value.as_str())
                     .is_some_and(|(expected, actual)| secret_fingerprint(actual) == expected);
                 if !fingerprint_matches {
-                    return Err("Claude Code 已修改受管的 ANTHROPIC_API_KEY；为保护现有凭证未写入".to_string());
+                    return Err(
+                        "Claude Code 已修改受管的 ANTHROPIC_API_KEY；为保护现有凭证未写入"
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -556,7 +557,9 @@ fn apply_waliapi_claude_code_settings(
     env.remove("ANTHROPIC_API_KEY");
     // 受管模型环境变量不应覆盖 Claude Code 的 /model 持久化选择。仅删除由
     // WaLiAPI 以前写入的值或 legacy 配置中的值；用户自行设置的覆盖原样保留。
-    if previously_managed_env.iter().any(|managed| managed == "ANTHROPIC_MODEL")
+    if previously_managed_env
+        .iter()
+        .any(|managed| managed == "ANTHROPIC_MODEL")
         || legacy_settings
     {
         env.remove("ANTHROPIC_MODEL");
@@ -627,7 +630,10 @@ fn apply_waliapi_claude_code_settings(
         }
     }
 
-    root.insert("model".to_string(), serde_json::Value::String(model.trim().to_string()));
+    root.insert(
+        "model".to_string(),
+        serde_json::Value::String(model.trim().to_string()),
+    );
     root.insert("_waliapi".to_string(), serde_json::json!(true));
     root.insert(
         WALIAPI_CLAUDE_SETTINGS_META.to_string(),
@@ -1091,13 +1097,18 @@ fn detect_applied(config_path: &PathBuf, app_name: &str) -> bool {
                 Err(_) => return false,
             };
             if app_name == "claude-code" {
-                let managed = v.get(WALIAPI_CLAUDE_SETTINGS_META)
+                let managed = v
+                    .get(WALIAPI_CLAUDE_SETTINGS_META)
                     .and_then(|m| m.get("version"))
                     .and_then(|n| n.as_u64())
                     .is_some_and(|version| version >= 3);
                 let env = v.get("env").and_then(|e| e.as_object());
-                managed && v.get("_waliapi").and_then(|x| x.as_bool()) == Some(true)
-                    && env.and_then(|e| e.get("ANTHROPIC_AUTH_TOKEN")).and_then(|x| x.as_str()).is_some_and(|s| !s.is_empty())
+                managed
+                    && v.get("_waliapi").and_then(|x| x.as_bool()) == Some(true)
+                    && env
+                        .and_then(|e| e.get("ANTHROPIC_AUTH_TOKEN"))
+                        .and_then(|x| x.as_str())
+                        .is_some_and(|s| !s.is_empty())
                     && env.and_then(|e| e.get("ANTHROPIC_API_KEY")).is_none()
             } else {
                 v.get("_waliapi").and_then(|v| v.as_bool()).unwrap_or(false)
@@ -1659,7 +1670,8 @@ mod tests {
             "env": {"ANTHROPIC_API_KEY": "key"},
             "modelPicker": {"options": [{"model": "user-model"}]}
         });
-        apply_waliapi_claude_code_settings(&mut settings, "http://gateway", "key", "model").unwrap();
+        apply_waliapi_claude_code_settings(&mut settings, "http://gateway", "key", "model")
+            .unwrap();
         assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "key");
         assert!(settings["env"]["ANTHROPIC_API_KEY"].is_null());
         assert_eq!(settings["model"], "model");
@@ -1673,7 +1685,13 @@ mod tests {
             "env": {"ANTHROPIC_API_KEY": "user-secret"}
         });
         let original = settings.clone();
-        assert!(apply_waliapi_claude_code_settings(&mut settings, "http://gateway", "key", "model").is_err());
+        assert!(apply_waliapi_claude_code_settings(
+            &mut settings,
+            "http://gateway",
+            "key",
+            "model"
+        )
+        .is_err());
         assert_eq!(settings, original);
     }
 
@@ -1688,7 +1706,13 @@ mod tests {
             }
         });
         let original = settings.clone();
-        assert!(apply_waliapi_claude_code_settings(&mut settings, "http://gateway", "new-key", "model").is_err());
+        assert!(apply_waliapi_claude_code_settings(
+            &mut settings,
+            "http://gateway",
+            "new-key",
+            "model"
+        )
+        .is_err());
         assert_eq!(settings, original);
     }
 

@@ -88,6 +88,12 @@ pub struct Settings {
     /// 语义层嵌入模型（空 = 只启用 exact 层）。
     #[serde(default)]
     pub cache_embedding_model: String,
+    /// 全局出站代理开关（VPN 固定转发端口）。渠道级 proxy.mode=global/缺省时生效。
+    #[serde(default = "default_false")]
+    pub proxy_enabled: bool,
+    /// 全局出站代理 URL（如 http://127.0.0.1:7890）。
+    #[serde(default)]
+    pub proxy_url: String,
 }
 
 fn default_otlp_interval_secs() -> u64 {
@@ -191,6 +197,8 @@ impl Default for Settings {
             cache_ttl_secs: default_cache_ttl_secs(),
             cache_threshold_percent: default_cache_threshold(),
             cache_embedding_model: String::new(),
+            proxy_enabled: default_false(),
+            proxy_url: String::new(),
         }
     }
 }
@@ -281,6 +289,8 @@ pub async fn get_settings(state: tauri::State<'_, Arc<AppState>>) -> Result<Sett
         cache_ttl_secs: get_u64(store, "cache.ttl_secs", 86_400),
         cache_threshold_percent: get_u64(store, "cache.semantic_threshold_percent", 95),
         cache_embedding_model: get_str(store, "cache.embedding_model", ""),
+        proxy_enabled: get_bool(store, "network.proxy.enabled", false),
+        proxy_url: get_str(store, "network.proxy.url", ""),
     };
     Ok(settings)
 }
@@ -438,7 +448,17 @@ pub async fn save_settings(
             "cache.embedding_model".to_string(),
             serde_json::json!(settings.cache_embedding_model),
         ),
+        (
+            "network.proxy.enabled".to_string(),
+            serde_json::json!(settings.proxy_enabled),
+        ),
+        (
+            "network.proxy.url".to_string(),
+            serde_json::json!(settings.proxy_url),
+        ),
     ])?;
+    // 出站代理保存后立即生效：新请求按新代理建连（连接池按代理 URL 分桶）。
+    crate::adaptor::set_global_proxy(settings.proxy_enabled.then(|| settings.proxy_url.clone()));
     crate::audit_log::apply_settings(&state.settings);
     // 缩短保留期后立即清理，避免等待后台维护周期。
     let retention_days = crate::audit_log::policy_from_settings(&state.settings).retention_days;

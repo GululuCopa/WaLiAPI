@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { settingsApi, serverApi, securityApi, ocrApi, semanticCacheApi, type OcrCacheInfo } from "../lib/api";
+import { settingsApi, serverApi, securityApi, ocrApi, semanticCacheApi, networkApi, type ProxyCandidate, type OcrCacheInfo } from "../lib/api";
 import { isWebRuntime } from "../lib/web";
+import { SELECT_CLS } from "../lib/constants";
 import { PanelSettingsSection } from "../components/PanelSettingsSection";
 import type { Settings, BuiltinRule, CustomRule } from "../types";
 import { Save, RotateCcw, Check, Server, SlidersHorizontal, Palette, RefreshCw, ShieldAlert, Plus, Trash2, ListChecks, Pencil, X, AlertCircle, HelpCircle, UserRound, ScanText, type LucideIcon } from "lucide-react";
@@ -25,6 +26,9 @@ export function SettingsPage() {
   const [editingBuiltin, setEditingBuiltin] = useState<string | null>(null);
   const [editBuiltinData, setEditBuiltinData] = useState({ severity: "", title: "", description: "" });
   const [ocrCacheInfo, setOcrCacheInfo] = useState<OcrCacheInfo | null>(null);
+  // 出站代理（VPN 固定端口）自动探测
+  const [proxyDetecting, setProxyDetecting] = useState(false);
+  const [proxyCandidates, setProxyCandidates] = useState<ProxyCandidate[] | null>(null);
   const [activeTab, setActiveTab] = useState<string>(() => {
     const hash = window.location.hash.replace("#", "");
     return hash || "security";
@@ -55,8 +59,22 @@ export function SettingsPage() {
     ocrApi.getCacheInfo().then(setOcrCacheInfo).catch(() => setOcrCacheInfo(null));
   }, [activeTab]);
 
-  const handleClearOcrCache = async () => {
+  const handleDetectProxies = async () => {
+    setProxyDetecting(true);
     try {
+      const list = await networkApi.detectLocalProxies();
+      setProxyCandidates(list);
+      setMessage(list.length > 0 ? `探测到 ${list.length} 个可用代理端口。` : "未探测到可用的本地代理端口。");
+    } catch (e) {
+      setMessage(`探测失败: ${e}`);
+      setProxyCandidates([]);
+    } finally {
+      setProxyDetecting(false);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
+  const handleClearOcrCache = async () => {    try {
       await ocrApi.clearCache();
       const info = await ocrApi.getCacheInfo().catch(() => null);
       setOcrCacheInfo(info);
@@ -198,8 +216,8 @@ export function SettingsPage() {
     setMessage("服务已触发重启，请稍候查看状态。");
   };
 
-  // 统一 select 样式
-  const selectCls = "w-full appearance-none rounded-2xl border border-border bg-background/70 px-4 py-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%2366758a%22><path d=%22M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z%22/></svg>')] bg-[length:20px_20px] bg-[right_0.75rem_center] bg-no-repeat";
+  // 统一 select 样式（共享常量，见 lib/constants.ts）
+  const selectCls = SELECT_CLS;
   const inputCls = "w-full rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary";
   const helpTooltipCls = "pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-64 max-w-[calc(100vw-3rem)] -translate-x-1/2 rounded-xl border border-border bg-background px-3 py-2 text-xs leading-relaxed text-foreground opacity-0 shadow-lg transition-opacity group-hover/help:opacity-100";
 
@@ -546,6 +564,68 @@ export function SettingsPage() {
                 <RotateCcw size={16} /> 重启服务
               </button>
             </div>
+          </div>
+
+          <div className="border-t border-white/8 pt-5">
+            <h3 className="mb-1 text-sm font-medium">出站代理（VPN 固定转发端口）</h3>
+            <p className="mb-4 text-xs text-muted-foreground">
+              开启后，所有「跟随全局」的上游请求经该代理转发；保存即刻生效，无需重启。渠道可单独改为直连或自定义代理。
+            </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="surface-soft flex items-center justify-between rounded-2xl px-4 py-4">
+                <span className="text-sm">启用出站代理</span>
+                <input
+                  type="checkbox"
+                  checked={settings.proxy_enabled}
+                  onChange={e => setSettings({ ...settings, proxy_enabled: e.target.checked })}
+                  className="h-5 w-5"
+                />
+              </label>
+              <div>
+                <label className="mb-2 block text-sm font-medium">代理地址（如 http://127.0.0.1:7890）</label>
+                <input
+                  value={settings.proxy_url}
+                  onChange={e => setSettings({ ...settings, proxy_url: e.target.value })}
+                  placeholder="http://127.0.0.1:7890"
+                  disabled={!settings.proxy_enabled}
+                  className={`${inputCls} font-mono disabled:opacity-50`}
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={handleDetectProxies}
+                  disabled={proxyDetecting || !settings.proxy_enabled}
+                  className="action-secondary w-full disabled:opacity-50"
+                >
+                  <RefreshCw size={16} className={proxyDetecting ? "animate-spin" : ""} />
+                  {proxyDetecting ? "探测中…" : "自动探测端口"}
+                </button>
+              </div>
+            </div>
+            {settings.proxy_enabled && proxyCandidates !== null && (
+              <div className="mt-3 space-y-2">
+                {proxyCandidates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">未探测到可用端口，请确认 VPN/代理客户端已开启「允许局域网连接」。</p>
+                ) : (
+                  proxyCandidates.map(c => (
+                    <button
+                      key={c.url}
+                      onClick={() => setSettings({ ...settings, proxy_url: c.url })}
+                      className="surface-soft flex w-full items-center justify-between rounded-xl px-4 py-2.5 text-left text-sm hover:border-primary/40"
+                    >
+                      <span className="font-mono text-xs">{c.url}</span>
+                      <span className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{c.label}</span>
+                        <span className={c.latency_ms !== null && c.latency_ms < 500 ? "text-green-600" : ""}>
+                          {c.latency_ms !== null ? `${c.latency_ms} ms` : "超时"}
+                        </span>
+                        {settings.proxy_url === c.url && <Check size={14} className="text-primary" />}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

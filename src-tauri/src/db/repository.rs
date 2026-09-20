@@ -34,14 +34,19 @@ impl Repository {
             let sanitized: Vec<serde_json::Value> = headers
                 .iter()
                 .filter(|h| !h.name.trim().is_empty())
-                .map(|h| serde_json::json!({
-                    "name": h.name.trim(),
-                    "value": h.value,
-                    "status": h.status.unwrap_or(1),
-                }))
+                .map(|h| {
+                    serde_json::json!({
+                        "name": h.name.trim(),
+                        "value": h.value,
+                        "status": h.status.unwrap_or(1),
+                    })
+                })
                 .collect();
             if let Some(object) = config.as_object_mut() {
-                object.insert("request_headers".to_string(), serde_json::Value::Array(sanitized));
+                object.insert(
+                    "request_headers".to_string(),
+                    serde_json::Value::Array(sanitized),
+                );
             }
         }
         serde_json::to_string(&config).unwrap_or_else(|_| "{}".to_string())
@@ -391,7 +396,10 @@ impl Repository {
         let now = now_iso();
         let models = serde_json::to_string(&input.models).unwrap_or_else(|_| "[]".to_string());
         let config = Self::config_with_request_headers(
-            input.config.clone().unwrap_or_else(|| serde_json::json!({})),
+            input
+                .config
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({})),
             input.request_headers.as_deref(),
         );
         let model_mapping = input
@@ -399,6 +407,11 @@ impl Repository {
             .as_ref()
             .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()))
             .unwrap_or_else(|| "{}".to_string());
+        let model_mapping_disabled = input
+            .model_mapping_disabled
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()))
+            .unwrap_or_else(|| "[]".to_string());
 
         let (identity, legacy_type, legacy_base, endpoints_json) = Self::plan_channel_identity(
             &input.protocol,
@@ -414,11 +427,11 @@ impl Repository {
         sqlx::query(
             "INSERT INTO channels (
                 id, name, type, base_url, api_key, models, status, priority, weight,
-                config, model_mapping, timeout_secs,
+                config, model_mapping, model_mapping_disabled, timeout_secs,
                 protocol, provider, native_base_url, native_endpoints,
                 preset_revision, identity_revision, legacy_executor_override,
                 created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -430,6 +443,7 @@ impl Repository {
         .bind(input.weight.unwrap_or(1))
         .bind(&config)
         .bind(&model_mapping)
+        .bind(&model_mapping_disabled)
         .bind(input.timeout_secs.unwrap_or(300))
         .bind(&identity.protocol)
         .bind(&identity.provider)
@@ -468,6 +482,11 @@ impl Repository {
         let config = serde_json::to_string(&input.config).unwrap_or_else(|_| "{}".to_string());
         let model_mapping =
             serde_json::to_string(&input.model_mapping).unwrap_or_else(|_| "{}".to_string());
+        let model_mapping_disabled = input
+            .model_mapping_disabled
+            .as_ref()
+            .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()))
+            .unwrap_or_else(|| "[]".to_string());
         let endpoints_json = input
             .native_endpoints
             .as_ref()
@@ -477,11 +496,11 @@ impl Repository {
         sqlx::query(
             "INSERT INTO channels (
                 id, name, type, base_url, api_key, models, status, priority, weight,
-                config, model_mapping, timeout_secs,
+                config, model_mapping, model_mapping_disabled, timeout_secs,
                 protocol, provider, native_base_url, native_endpoints,
                 preset_revision, identity_revision, legacy_executor_override,
                 created_at, updated_at, last_test_at, last_test_ok)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -494,6 +513,7 @@ impl Repository {
         .bind(input.weight)
         .bind(&config)
         .bind(&model_mapping)
+        .bind(&model_mapping_disabled)
         .bind(input.timeout_secs)
         .bind(&input.protocol)
         .bind(&input.provider)
@@ -526,13 +546,14 @@ impl Repository {
 
         let now = now_iso();
         let mut tx = self.pool.begin().await?;
-        let existing_config: serde_json::Value = sqlx::query_scalar("SELECT config FROM channels WHERE id = ?")
-            .bind(&input.id)
-            .fetch_one(&mut *tx)
-            .await
-            .ok()
-            .and_then(|raw: String| serde_json::from_str(&raw).ok())
-            .unwrap_or_else(|| serde_json::json!({}));
+        let existing_config: serde_json::Value =
+            sqlx::query_scalar("SELECT config FROM channels WHERE id = ?")
+                .bind(&input.id)
+                .fetch_one(&mut *tx)
+                .await
+                .ok()
+                .and_then(|raw: String| serde_json::from_str(&raw).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
 
         // STEP 1: write the legacy/business fields exactly as the payload
         // provides them (old frontend payloads). Naming type/base_url/config in
@@ -578,6 +599,10 @@ impl Repository {
         if let Some(mapping) = &input.model_mapping {
             let m = serde_json::to_string(mapping).unwrap_or_else(|_| "{}".to_string());
             q.push(", model_mapping = ").push_bind(m);
+        }
+        if let Some(disabled) = &input.model_mapping_disabled {
+            let d = serde_json::to_string(disabled).unwrap_or_else(|_| "[]".to_string());
+            q.push(", model_mapping_disabled = ").push_bind(d);
         }
         if let Some(timeout_secs) = input.timeout_secs {
             q.push(", timeout_secs = ").push_bind(timeout_secs);
@@ -870,12 +895,11 @@ impl Repository {
                         ));
                     }
                     // 校验唯一性
-                    let exists: Option<(String,)> = sqlx::query_as(
-                        "SELECT id FROM api_keys WHERE key = ?",
-                    )
-                    .bind(trimmed)
-                    .fetch_optional(&self.pool)
-                    .await?;
+                    let exists: Option<(String,)> =
+                        sqlx::query_as("SELECT id FROM api_keys WHERE key = ?")
+                            .bind(trimmed)
+                            .fetch_optional(&self.pool)
+                            .await?;
                     if exists.is_some() {
                         return Err(sqlx::Error::Protocol(
                             "该密钥已存在，请更换后重试".to_string(),

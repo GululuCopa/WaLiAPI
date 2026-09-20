@@ -119,6 +119,12 @@ pub async fn run(cfg: WebServerConfig) -> Result<(), String> {
         tracing::warn!("[模板] 种子写入失败（运行时回退编译期默认）: {error}");
     }
     crate::audit_log::apply_settings(&state.settings);
+    // 全局出站代理（VPN 固定端口）：启动时从设置加载。
+    {
+        let enabled = state.settings.get_bool("network.proxy.enabled", false);
+        let url = state.settings.get_str("network.proxy.url", "");
+        crate::adaptor::set_global_proxy(enabled.then_some(url));
+    }
     tauri::async_runtime::spawn(crate::audit_log::run_maintenance_loop(
         state.db.pool.clone(),
         state.settings.clone(),

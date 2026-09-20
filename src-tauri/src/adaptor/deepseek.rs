@@ -57,7 +57,8 @@ impl Adaptor for DeepSeekAdaptor {
     ) -> Result<(u16, serde_json::Value, Option<TokenUsage>), anyhow::Error> {
         let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
         let body = super::openai::apply_model_mapping(&request.body, &config.model_mapping);
-        let client = crate::adaptor::blocking_client(config.timeout_secs);
+        let proxy = config.proxy_url();
+        let client = crate::adaptor::blocking_client(config.timeout_secs, proxy.as_deref());
         let resp = client
             .post(&url)
             .header("Authorization", format!("Bearer {}", config.api_key))
@@ -89,7 +90,8 @@ impl Adaptor for DeepSeekAdaptor {
     ) -> Result<reqwest::Response, anyhow::Error> {
         let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
         let body = super::openai::apply_model_mapping(&request.body, &config.model_mapping);
-        let client = crate::adaptor::streaming_client();
+        let proxy = config.proxy_url();
+        let client = crate::adaptor::streaming_client(proxy.as_deref());
         let resp = client
             .post(&url)
             .header("Authorization", format!("Bearer {}", config.api_key))

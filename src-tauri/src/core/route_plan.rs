@@ -221,12 +221,11 @@ impl RouteCandidate {
     }
 
     /// Unified accessor: returns the candidate's `model_mapping` as a JSON Value.
-    /// Works for both channels and auth accounts.
+    /// Works for both channels and auth accounts.  Channels exclude disabled
+    /// mapping pairs (migration 041) so closed mappings never resolve upstream.
     pub fn mapping_json(&self) -> Value {
         match self {
-            Self::Channel { channel, .. } => {
-                serde_json::from_str(&channel.model_mapping).unwrap_or_default()
-            }
+            Self::Channel { channel, .. } => channel.active_model_mapping(),
             Self::AuthAccount(account) => account.model_mapping().unwrap_or_default(),
         }
     }
@@ -707,8 +706,12 @@ fn channel_accepts_model(channel: &Channel, model: &str) -> bool {
     if models.iter().any(|m| m == model) {
         return true;
     }
-    // Mapping source names also count as hits.
-    mapping_contains_source(&channel.model_mapping, model)
+    // Mapping source names also count as hits (disabled pairs excluded, 041).
+    channel
+        .active_model_mapping()
+        .as_object()
+        .map(|o| o.contains_key(model))
+        .unwrap_or(false)
 }
 
 fn auth_account_accepts_model(account: &AuthAccount, model: &str) -> bool {
@@ -1334,6 +1337,7 @@ mod tests {
         config: &str,
     ) -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: id.into(),
             name: format!("ch-{}", id),
             channel_type: channel_type.into(),
@@ -1380,6 +1384,7 @@ mod tests {
         weight: i64,
     ) -> Channel {
         Channel {
+            model_mapping_disabled: "[]".into(),
             id: id.into(),
             name: format!("ch-{}", id),
             channel_type: if protocol == "anthropic" {

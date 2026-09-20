@@ -71,10 +71,17 @@ pub async fn fetch_upstream_models(
         headers.push(("anthropic-version".to_string(), "2023-06-01".to_string()));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs.max(1)))
-        .build()
-        .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
+    // 出站代理：草稿渠道的 config.proxy（global/direct/custom）与全局设置一致解析。
+    let proxy_url = crate::adaptor::ProxySetting::from_extra(
+        input.config.as_ref().unwrap_or(&serde_json::Value::Null),
+    )
+    .and_then(|p| p.resolve());
+    let client = crate::adaptor::with_proxy(
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs.max(1))),
+        proxy_url.as_deref(),
+    )
+    .build()
+    .map_err(|e| format!("创建 HTTP 客户端失败：{e}"))?;
 
     let mut req = client.get(&url).header("content-type", "application/json");
     for (k, v) in &headers {
@@ -177,6 +184,7 @@ mod tests {
 
     fn draft(protocol: &str, base_url: &str) -> DraftChannelTestInput {
         DraftChannelTestInput {
+            model_mapping_disabled: None,
             // v0.3.3 为该结构体新增了自定义请求头字段，测试构造点需同步补齐。
             request_headers: None,
             id: None,

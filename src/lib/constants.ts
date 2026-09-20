@@ -77,6 +77,11 @@ export const ENDPOINT_LABELS: Record<string, string> = {
   api_chat: "/api/chat",
 };
 
+// 统一 select 样式：appearance-none 去掉系统原生外观，改用内置 SVG 下拉箭头，
+// 与输入框（rounded-2xl + border-border）保持同一 UI 语言。设置页与渠道表单共用。
+export const SELECT_CLS =
+  "w-full appearance-none rounded-2xl border border-border bg-background/70 px-4 py-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%2366758a%22><path d=%22M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z%22/></svg>')] bg-[length:20px_20px] bg-[right_0.75rem_center] bg-no-repeat";
+
 // 端点 → 请求路径模板（与后端 endpoint_executor::endpoint_path 对齐；
 // Anthropic Base 自带 /v1，故 messages/count_tokens 只补 /messages）。实际请求
 // URL = native_base_url 去尾斜杠 + 本路径去首斜杠（见 ChannelForm.joinUrl）。

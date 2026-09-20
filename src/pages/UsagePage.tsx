@@ -6,6 +6,7 @@ import { channelApi, apiKeyApi, serverApi, authApi } from "../lib/api";
 import type { Channel, ApiKey, ServerStatus, AuthAccount } from "../types";
 import { isTauriRuntime, writeClipboard } from "../lib/runtime";
 import { makeKeyGuards } from "../lib/keyRules";
+import { activeMappingFroms } from "../hooks/useModelMappings";
 import { AppConfigPanel, getAppIcon } from "./AppConfigPage";
 import {
   BookOpen, Copy, Check, Play, Loader2, Link2, KeyRound, Bot,
@@ -98,9 +99,7 @@ export function UsagePage() {
       (ch as Channel[]).forEach(c => {
         if (c.status !== 1) return; // skip inactive channels
         c.models.forEach(m => { if (!ms.includes(m)) ms.push(m); });
-        if (c.model_mapping) {
-          Object.keys(c.model_mapping).forEach(from => { if (!ms.includes(from)) ms.push(from); });
-        }
+        activeMappingFroms(c.model_mapping, c.model_mapping_disabled).forEach(from => { if (!ms.includes(from)) ms.push(from); });
       });
       (accts as AuthAccount[]).forEach(a => {
         if (a.disabled) return; // skip disabled auth accounts
@@ -163,7 +162,7 @@ export function UsagePage() {
     channels.filter(c => c.status === 1).forEach(c => {
       if (!channelAllowed(c.id)) return;
       c.models.forEach(m => { if (modelAllowed(m)) channelSet.add(m); });
-      if (c.model_mapping) Object.keys(c.model_mapping).forEach(from => { if (modelAllowed(from)) mappingSet.add(from); });
+      activeMappingFroms(c.model_mapping, c.model_mapping_disabled).forEach(from => { if (modelAllowed(from)) mappingSet.add(from); });
     });
     // Auth accounts are exempt from channel-level restrictions (no channel id).
     // Model-level restrictions still apply.

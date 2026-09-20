@@ -4,7 +4,7 @@
 
 ### 本地 LLM API 网关 · 多协议接入 · 知识库 RAG · MCP 工具服务
 
-[![Version](https://img.shields.io/badge/version-0.3.3-blue.svg)](./src-tauri/tauri.conf.json)
+[![Version](https://img.shields.io/badge/version-0.3.4-blue.svg)](./src-tauri/tauri.conf.json)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#-使用方式)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app)
@@ -43,6 +43,7 @@
 | 🏆 | **小傅哥** | [@fuzhengwei](https://github.com/fuzhengwei) | 283 | `+61,165 / -7,262` | 项目创建者 · 核心架构 · 多渠道网关 · 协议转换 · 安全审计 · 知识库引擎 · Wiki 知识引擎 · MCP Server · Codex 账号切换 |
 | ⚡ | **xian** | [@zsxink](https://github.com/zsxink) | 140 | `+97,192 / -24,477` | Anthropic Messages 协议兼容 · 渠道协议重构（T01-T14）· codec 加固 · SSRF 防护 · SSE 帧重组 · models 接口 · Kimi Code Auth · protocol 模块结构化重构 · Auth 多格式导入 |
 | 🛠 | **chyuan** | [@chyuan-cuihongyuan](https://github.com/chyuan-cuihongyuan) | 55 | `+11,613 / -1,727` | 统一上游重试判定决策函数与真值表测试 · 渠道健康探测与候选排序 · 语义缓存 · 流式内容持久化与断线续传 · X-Request-Id / OTLP 可观测性 · 知识库增量索引、查询改写与混合检索 · 配额强化 · 401/403 下游脱敏 |
+| 🚀 | **GululuCopa** | [@GululuCopa](https://github.com/GululuCopa) | 6 | `+8,465 / -92` | Grok OAuth 登录（PR #122）· Antigravity OAuth Gemini 登录（PR #121）· Grok 与 Antigravity namespace 工具兼容修复 |
 | 🐳 | **Fla1337** | [@Fla1337](https://github.com/Fla1337) | 15 | `+4,978 / -1,143` | Web 管理面板 · Docker / headless 部署 · waliapi-web 二进制 · 多阶段镜像构建 · Web 管理面板用户设置 |
 | 🔧 | **mw** | [@maowei0427](https://github.com/maowei0427) | 10 | `+1,228 / -244` | 日志响应内容记录 · Trace ID 追踪 · 详情页体验优化 · 知识库 embedding 批次配置 |
 | 🔧 | **Nelson** | [@Zhengmingming1](https://github.com/Zhengmingming1) | 20 | `+7,247 / -634` | 知识库扫描版 PDF VLM OCR（方案A）· 中文 PDF 与检索修复 · 知识库访问授权与连接检查 · RAG 检索回归修复（管理搜索模式/权重、失败重导、索引落后回退、向量校验）· Token 配额标签澄清 · 修复 Claude 渠道协议适配 · pdfium macOS 打包路径修复 |
@@ -676,6 +677,25 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 ---
 
 ## 📌 版本历史
+
+### v0.3.4 (2026-09-20)
+
+#### Auth 账号
+
+- ✨ **Grok OAuth 登录**：新增 Grok 渠道 OAuth 授权登录，支持 Token 自动刷新与协议感知模型发现，Auth 渠道页可直接登录 Grok 账号（PR #122，@GululuCopa）
+- ✨ **Antigravity OAuth（Gemini）登录**：新增 Antigravity 作为 Gemini 渠道的 OAuth 登录方式，Gemini 渠道支持 Antigravity 账号接入（PR #121，@GululuCopa）
+- 🐛 **Grok 与 Antigravity namespace 工具兼容**：兼容两者工具调用的 namespace 前缀，修复工具调用在协议转换中的匹配问题（@GululuCopa）
+
+#### 渠道管理
+
+- ✨ **模型映射支持开启/关闭**：每条模型映射可单独停用（迁移 041），路由匹配、上游模型解析、`/v1/models` 聚合均跳过被关闭的映射；映射行点击开关即时切换，导入导出同步兼容
+- ✨ **从 curl 导入渠道**：新建渠道表单支持粘贴任意 OpenAI / Anthropic / Ollama 兼容的 curl 命令，自动解析并一键填充协议、Base URL、API Key 与模型
+- ✨ **复制测试 curl**：渠道列表新增「复制测试 curl」，按渠道协议 / URL / 模型生成可直接执行的 curl 命令（含真实 API Key），粘贴到终端即可验证渠道连通性
+
+#### 其他
+
+- 📝 **README 贡献者数据同步**：新增贡献者 GululuCopa（PR #121 #122），并按当前仓库提交记录更新全体贡献者提交数与代码变更统计
+- 🔧 **版本号统一升级至 0.3.4**（package.json / Cargo.toml / tauri.conf.json / Cargo.lock）
 
 ### v0.3.3 (2026-09-16)
 

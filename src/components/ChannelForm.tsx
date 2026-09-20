@@ -11,7 +11,9 @@ import type {
 import {
   PROTOCOL_LABELS, ENDPOINT_LABELS, ENDPOINT_PATHS,
 } from "../lib/constants";
-import { X, Plus, Check, RefreshCw, KeyRound, Undo, Loader2, Trash2, Power, Copy } from "lucide-react";
+import { X, Plus, Check, RefreshCw, KeyRound, Undo, Loader2, Trash2, Power, Copy, Terminal, ChevronDown } from "lucide-react";
+import { parseCurlToChannel } from "../lib/curl";
+import { SELECT_CLS } from "../lib/constants";
 import { MappingSection } from "./MappingSection";
 import { DraftTestModal } from "./channel-form/DraftTestModal";
 import { ModelSyncModal } from "./channel-form/ModelSyncModal";
@@ -116,6 +118,8 @@ interface FormState {
   models: string[];
   native_endpoints: ChannelEndpoint[];
   model_mapping: Record<string, string | string[]>;
+  /** 被关闭的映射对（迁移 041）：[from, to][] */
+  model_mapping_disabled: string[][];
   priority: number;
   weight: number;
   timeout_secs: number;
@@ -124,6 +128,9 @@ interface FormState {
   // Multi-key: extra API keys for load balancing
   extra_keys: ExtraKeyItem[];
   request_headers: RequestHeaderItem[];
+  // 出站代理：跟随全局 / 强制直连 / 自定义代理
+  proxy_mode: "global" | "direct" | "custom";
+  proxy_url: string;
 }
 
 interface RequestHeaderItem {
@@ -159,6 +166,7 @@ function initForm(editing: Channel | null, duplicate = false): FormState {
       models: editing.models ?? [],
       native_endpoints: endpoints.length > 0 ? endpoints : defaultEndpointsFor(protocol),
       model_mapping: editing.model_mapping ?? {},
+      model_mapping_disabled: editing.model_mapping_disabled ?? [],
       priority: editing.priority ?? 0,
       weight: editing.weight ?? 1,
       timeout_secs: editing.timeout_secs ?? 300,
@@ -182,6 +190,8 @@ function initForm(editing: Channel | null, duplicate = false): FormState {
         isExisting: true,
         rawValue: "",
       })),
+      proxy_mode: parseProxyMode(editing.config),
+      proxy_url: parseProxyUrl(editing.config),
     };
   }
   return {
@@ -193,13 +203,29 @@ function initForm(editing: Channel | null, duplicate = false): FormState {
     models: [],
     native_endpoints: defaultEndpointsFor("openai"),
     model_mapping: {},
+    model_mapping_disabled: [],
     priority: 0,
     weight: 1,
     timeout_secs: 300,
     preset_revision: null,
     extra_keys: [],
     request_headers: [],
+    proxy_mode: "global",
+    proxy_url: "",
   };
+}
+
+/** 从渠道 config JSON 解析代理模式（缺省 = 跟随全局）。 */
+function parseProxyMode(config: Record<string, unknown> | undefined): "global" | "direct" | "custom" {
+  const proxy = config?.proxy as { mode?: unknown } | undefined;
+  const mode = proxy?.mode;
+  return mode === "direct" || mode === "custom" ? mode : "global";
+}
+
+/** 从渠道 config JSON 解析自定义代理 URL。 */
+function parseProxyUrl(config: Record<string, unknown> | undefined): string {
+  const proxy = config?.proxy as { url?: unknown } | undefined;
+  return typeof proxy?.url === "string" ? proxy.url : "";
 }
 
 
@@ -247,6 +273,10 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
   const [syncResult, setSyncResult] = useState<UpstreamModelsResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  // ── curl 快速导入（默认收起）────────────────────────────────────────────
+  const [curlOpen, setCurlOpen] = useState(false);
+  const [curlInput, setCurlInput] = useState("");
+  const [curlError, setCurlError] = useState<string | null>(null);
   /** 本次应用后新增的模型（绿色高亮动画用）。 */
   const [addedModels, setAddedModels] = useState<string[]>([]);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -534,6 +564,8 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
       request_headers: form.request_headers
         .filter(h => h.name.trim() !== "")
         .map(h => ({ name: h.name.trim(), value: h.value, status: h.enabled ? 1 : 0 })),
+      // 草稿测试同样走渠道级出站代理（后端经 endpoint_executor 解析 config.proxy）。
+      config: proxyConfig(),
     };
   }
 
@@ -542,6 +574,33 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
     setToastMsg(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToastMsg(null), 2600);
+  }
+
+  // ── curl 快速导入：解析粘贴的 curl，一键填充协议 / Base URL / Key / 模型 ──
+  function handleCurlImport() {
+    const input = curlInput.trim();
+    if (!input) { setCurlError("请先粘贴 curl 命令"); return; }
+    const parsed = parseCurlToChannel(input);
+    if (!parsed) {
+      setCurlError("无法解析该命令：请确认是包含 URL 的合法 curl 请求（支持带 \\ 换行与引号）");
+      return;
+    }
+    setForm(prev => ({
+      ...prev,
+      protocol: parsed.protocol,
+      provider: "custom",
+      preset_revision: null,
+      native_base_url: parsed.baseUrl,
+      native_endpoints: parsed.endpoint ? [parsed.endpoint] : defaultEndpointsFor(parsed.protocol),
+      models: parsed.model && !prev.models.includes(parsed.model) ? [...prev.models, parsed.model] : prev.models,
+      api_key: parsed.apiKey || prev.api_key,
+    }));
+    // 解析出的身份与已选提供商预设无关，重置模板选择由 provider: "custom" 表达。
+    invalidateReceipt();
+    setCurlError(null);
+    setCurlInput("");
+    setCurlOpen(false);
+    showToast(`已解析 curl 并填充：${PROTOCOL_LABELS[parsed.protocol]} · ${parsed.baseUrl}`);
   }
 
   async function handleSync() {
@@ -578,6 +637,20 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
     if (highlightTimer.current) clearTimeout(highlightTimer.current);
   }, []);
 
+  /** 代理设置合并进 config：global 时移除 proxy 键（恢复跟随全局），custom 保留既有 config 其他键。 */
+  function proxyConfig(): Record<string, unknown> {
+    const base: Record<string, unknown> = { ...(editing?.config ?? {}) };
+    if (form.proxy_mode === "global") {
+      delete base.proxy;
+    } else {
+      base.proxy = {
+        mode: form.proxy_mode,
+        ...(form.proxy_mode === "custom" && form.proxy_url.trim() ? { url: form.proxy_url.trim() } : {}),
+      };
+    }
+    return base;
+  }
+
   type ReceiptFields = { test_run_id: string; draft_fingerprint: string; force_save: boolean };
 
   function receiptFields(result: DraftChannelTestResult | null, forceSave: boolean): ReceiptFields | null {
@@ -599,6 +672,7 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
       priority: form.priority,
       weight: form.weight,
       model_mapping: form.model_mapping,
+      model_mapping_disabled: form.model_mapping_disabled,
       timeout_secs: form.timeout_secs,
       protocol: form.protocol,
       provider: form.provider,
@@ -617,6 +691,7 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
       request_headers: form.request_headers
         .filter(h => h.name.trim() !== "")
         .map(h => ({ name: h.name.trim(), value: h.value, status: h.enabled ? 1 : 0 })),
+      config: proxyConfig(),
       ...(rf ?? {}),
     };
   }
@@ -629,6 +704,7 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
       priority: form.priority,
       weight: form.weight,
       model_mapping: form.model_mapping,
+      model_mapping_disabled: form.model_mapping_disabled,
       timeout_secs: form.timeout_secs,
       // F3：始终写回解析后的身份（type/base_url/protocol/provider/native_*）。
       // 对 legacy（identity_revision 0）渠道，保存即迁移；对已迁移渠道为幂等写。
@@ -655,6 +731,7 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
       request_headers: form.request_headers
         .filter(h => h.name.trim() !== "")
         .map(h => ({ name: h.name.trim(), value: h.value, status: h.enabled ? 1 : 0 })),
+      config: proxyConfig(),
       ...(rf ?? {}),
     };
   }
@@ -753,6 +830,49 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
           className="space-y-5 p-5"
           onKeyDown={e => { if (e.key === "Enter" && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault(); }}
         >
+          {/* curl 快速导入（默认收起，点击展开） */}
+          <div className="rounded-2xl border border-border bg-background/40">
+            <button
+              type="button"
+              onClick={() => setCurlOpen(o => !o)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left"
+              aria-expanded={curlOpen}
+            >
+              <Terminal size={15} className="shrink-0 text-primary" />
+              <span className="text-sm font-medium">从 curl 导入</span>
+              <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+                {curlOpen ? "收起" : "粘贴 curl 命令，一键填充配置"}
+                <ChevronDown size={14} className={`transition-transform ${curlOpen ? "rotate-180" : ""}`} />
+              </span>
+            </button>
+            {curlOpen && (
+              <div className="space-y-2.5 border-t border-border px-4 py-3.5">
+                <textarea
+                  value={curlInput}
+                  onChange={e => { setCurlInput(e.target.value); setCurlError(null); }}
+                  rows={5}
+                  className="w-full resize-y rounded-xl border border-border bg-background/70 px-3 py-2.5 font-mono text-xs leading-relaxed"
+                  placeholder={"curl https://api.example.com/v1/chat/completions \\\n  -H 'Authorization: Bearer sk-...' \\\n  -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'"}
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    使用方法：从终端或厂商文档复制任意 OpenAI / Anthropic / Ollama 兼容的 curl 命令，粘贴到上方后点击「解析并填充」，
+                    将自动识别协议、Base URL、API Key（Bearer / x-api-key）与模型，并填入下方表单；填充后仍可手动微调再保存。
+                  </p>
+                  <button type="button" onClick={handleCurlImport} className="action-secondary shrink-0">
+                    解析并填充
+                  </button>
+                </div>
+                {curlError && (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{curlError}</p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* 协议 Tab */}
           <div>
             <label className="mb-2 block text-sm font-medium">协议</label>
@@ -1185,8 +1305,10 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
           {/* 模型映射 */}
           <MappingSection
             value={form.model_mapping}
+            disabledPairs={form.model_mapping_disabled}
             availableTargets={form.models}
             onChange={(mapping) => setForm(prev => ({ ...prev, model_mapping: mapping }))}
+            onDisabledChange={(disabled) => setForm(prev => ({ ...prev, model_mapping_disabled: disabled }))}
           />
 
           {/* 优先级 + 权重 */}
@@ -1225,6 +1347,31 @@ export function ChannelForm({ editing, duplicate = false, onClose, onSaved }: {
               className="w-full rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm"
             />
             <p className="mt-1.5 text-xs text-muted-foreground">非流式请求的超时时间（默认 300 秒）。流式请求仅限制连接建立时间，不受此限制。超时后会自动重试下一个渠道</p>
+          </div>
+
+          {/* 出站代理 */}
+          <div>
+            <label className="mb-2 block text-sm font-medium">出站代理</label>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <select
+                value={form.proxy_mode}
+                onChange={e => setForm(prev => ({ ...prev, proxy_mode: e.target.value as FormState["proxy_mode"] }))}
+                className={SELECT_CLS}
+              >
+                <option value="global">跟随全局设置</option>
+                <option value="direct">强制直连（不走代理）</option>
+                <option value="custom">自定义代理</option>
+              </select>
+              {form.proxy_mode === "custom" && (
+                <input
+                  value={form.proxy_url}
+                  onChange={e => setForm(prev => ({ ...prev, proxy_url: e.target.value }))}
+                  placeholder="http://127.0.0.1:7890"
+                  className="w-full rounded-2xl border border-border bg-background/70 px-4 py-3 font-mono text-sm"
+                />
+              )}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">控制该渠道的上游请求是否经 VPN/代理转发。全局代理在「设置 → 服务配置」中开启与自动探测端口。</p>
           </div>
 
           {localError && (

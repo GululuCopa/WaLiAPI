@@ -263,7 +263,10 @@ async fn ocr_page_uses_anthropic_format_for_claude_channels() {
 
     let repo = Repository::new(pool.clone());
     let client = VlmOcrClient::new(&repo, "test-vl");
-    let result = client.ocr_page(b"fake-jpeg", 1).await.expect("ocr_page via claude");
+    let result = client
+        .ocr_page(b"fake-jpeg", 1)
+        .await
+        .expect("ocr_page via claude");
 
     assert_eq!(result.markdown, "这是 claude 渠道识别出的页面内容。");
     assert_eq!(result.total_tokens, 1050);

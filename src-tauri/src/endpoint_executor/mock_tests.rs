@@ -159,6 +159,7 @@ fn identity(protocol: &str, endpoints: &[&str], legacy_override: Option<&str>) -
 
 fn channel(base_url: &str, api_key: &str) -> Channel {
     Channel {
+        model_mapping_disabled: "[]".into(),
         id: "ch-test".into(),
         name: "test".into(),
         channel_type: "openai".into(),

@@ -4,11 +4,12 @@ import type { ChannelStats } from "../lib/api";
 import type { Channel } from "../types";
 import { getProtocolLabel, getChannelProviderLabel, formatTime, formatNumber, formatDuration } from "../lib/constants";
 import { downloadTextFile, isWebRuntime } from "../lib/web";
-import { Plus, Radio, Trash2, Zap, Power, Edit, Download, ChevronDown, Upload, Loader2, X, Activity, Clock, GripVertical, Eye, EyeOff, Copy, Check, AlertCircle } from "lucide-react";
+import { Plus, Radio, Trash2, Zap, Power, Edit, Download, ChevronDown, Upload, Loader2, X, Activity, Clock, GripVertical, Eye, EyeOff, Copy, Check, AlertCircle, Terminal } from "lucide-react";
 import { ChannelForm } from "../components/ChannelForm";
 import { ImportDialog } from "../components/ImportDialog";
 import { ChannelTabs } from "../components/layout/ChannelTabs";
 import { writeClipboard } from "../lib/runtime";
+import { buildChannelCurl } from "../lib/curl";
 
 export function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -36,6 +37,7 @@ export function ChannelsPage() {
   const [extraKeyLoading, setExtraKeyLoading] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedModel, setCopiedModel] = useState<string | null>(null);
+  const [copiedCurl, setCopiedCurl] = useState<string | null>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
@@ -119,9 +121,24 @@ export function ChannelsPage() {
     }
   };
 
+  // 映射模型 开启/关闭（迁移 041）：乐观更新 + 即时保存，失败回滚
+  const handleToggleMapping = async (ch: Channel, name: string, target: string, currentlyOff: boolean) => {
+    const current = ch.model_mapping_disabled ?? [];
+    const next = currentlyOff
+      ? current.filter(d => !(d[0] === name && d[1] === target))
+      : [...current.filter(d => !(d[0] === name && d[1] === target)), [name, target]];
+    setChannels(prev => prev.map(c => (c.id === ch.id ? { ...c, model_mapping_disabled: next } : c)));
+    try {
+      await channelApi.update({ id: ch.id, model_mapping_disabled: next });
+    } catch (e) {
+      setChannels(prev => prev.map(c => (c.id === ch.id ? { ...c, model_mapping_disabled: current } : c)));
+      console.error("Failed to toggle mapping:", e);
+      setActionError(`切换映射状态失败: ${String(e)}`);
+    }
+  };
+
   // API Key 显示/隐藏切换
-  const handleToggleKey = async (ch: Channel) => {
-    const next = !showKeyMap[ch.id];
+  const handleToggleKey = async (ch: Channel) => {    const next = !showKeyMap[ch.id];
     setShowKeyMap(prev => ({ ...prev, [ch.id]: next }));
     if (next && !fullKeyMap[ch.id]) {
       setKeyLoading(ch.id);
@@ -179,6 +196,32 @@ export function ChannelsPage() {
     } catch (e) {
       console.error("Failed to copy:", e);
       setActionError("复制失败：无法获取完整密钥");
+    }
+  };
+
+  // 复制测试 curl：按渠道协议/URL/模型生成可直接执行的 curl 命令（含真实 Key）
+  const handleCopyCurl = async (ch: Channel) => {
+    try {
+      let keyToCopy = fullKeyMap[ch.id];
+      if (!keyToCopy) {
+        keyToCopy = await channelApi.getApiKey(ch.id);
+        setFullKeyMap(prev => ({ ...prev, [ch.id]: keyToCopy }));
+      }
+      const curl = buildChannelCurl({
+        protocol: ch.protocol,
+        baseUrl: ch.native_base_url || ch.base_url,
+        models: ch.models,
+        apiKey: keyToCopy,
+        extraHeaders: (ch.request_headers ?? [])
+          .filter(h => h.status === 1)
+          .map(h => ({ name: h.name, value: h.value })),
+      });
+      await writeClipboard(curl);
+      setCopiedCurl(ch.id);
+      setTimeout(() => setCopiedCurl(null), 2000);
+    } catch (e) {
+      console.error("Failed to copy curl:", e);
+      setActionError("复制 curl 失败：无法获取完整密钥");
     }
   };
 
@@ -379,6 +422,9 @@ export function ChannelsPage() {
                     <button onClick={() => handleTest(ch.id)} disabled={testing === ch.id} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50" title="测试连接">
                       {testing === ch.id ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
                     </button>
+                    <button onClick={() => handleCopyCurl(ch)} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="复制测试 curl 命令（含真实 API Key，粘贴到终端即可直接请求该渠道）">
+                      {copiedCurl === ch.id ? <Check size={15} className="text-emerald-500" /> : <Terminal size={15} />}
+                    </button>
                     <button onClick={() => { setEditing(ch); setShowForm(true); }} className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600" title="编辑">
                       <Edit size={15} />
                     </button>
@@ -431,20 +477,37 @@ export function ChannelsPage() {
                       <div>
                         <div className="mb-1.5 text-xs font-semibold text-slate-500">映射模型</div>
                         <div className="flex flex-wrap gap-1.5">
-                          {Object.entries(ch.model_mapping).map(([name, target]) => {
+                          {Object.entries(ch.model_mapping).flatMap(([name, target]) => {
                             const targets = Array.isArray(target) ? target : [target];
-                            const label = `${name} → ${targets.join(" / ")}`;
-                            return (
-                              <button
-                                key={name}
-                                onClick={() => handleCopyModel(name)}
-                                className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0 text-[11px] font-medium leading-5 transition-all active:scale-95 ${copiedModel === name ? "bg-emerald-50 text-emerald-700" : "bg-violet-50 text-violet-700 hover:bg-violet-100"}`}
-                                title="点击复制映射名"
-                              >
-                                {label}
-                                {copiedModel === name && <Check size={9} className="text-emerald-500" />}
-                              </button>
-                            );
+                            return targets.map(t => {
+                              const isOff = (ch.model_mapping_disabled ?? []).some(d => d[0] === name && d[1] === t);
+                              return (
+                                <div
+                                  key={`${name}→${t}`}
+                                  className={`inline-flex items-center gap-1 rounded-full py-0 pl-1.5 pr-1 text-[11px] font-medium leading-5 transition-all ${
+                                    isOff ? "bg-slate-100 text-slate-400" : "bg-violet-50 text-violet-700"
+                                  }`}
+                                >
+                                  <button
+                                    onClick={() => handleCopyModel(name)}
+                                    className={`transition-all active:scale-95 ${isOff ? "line-through decoration-slate-300" : "hover:text-violet-900"}`}
+                                    title="点击复制映射名"
+                                  >
+                                    {name} → {t}
+                                    {copiedModel === name && <Check size={9} className="ml-0.5 inline text-emerald-500" />}
+                                  </button>
+                                  <button
+                                    onClick={() => handleToggleMapping(ch, name, t, isOff)}
+                                    className={`rounded-full p-0.5 transition-colors ${
+                                      isOff ? "text-slate-400 hover:bg-slate-200 hover:text-emerald-600" : "text-violet-400 hover:bg-violet-100 hover:text-red-500"
+                                    }`}
+                                    title={isOff ? "已关闭，点击开启" : "已开启，点击关闭"}
+                                  >
+                                    <Power size={10} />
+                                  </button>
+                                </div>
+                              );
+                            });
                           })}
                         </div>
                       </div>

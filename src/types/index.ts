@@ -43,6 +43,8 @@ export interface Channel {
   weight: number;
   config: Record<string, unknown>;
   model_mapping: Record<string, string | string[]>;
+  /** 被关闭的映射对（迁移 041）：[from, to] 数组；缺省/空数组 = 全部开启。 */
+  model_mapping_disabled?: string[][];
   timeout_secs: number;
   // --- T02 normalized protocol identity (output DTO always returns these) ---
   protocol: "openai" | "anthropic" | "ollama" | string;
@@ -77,6 +79,8 @@ export interface CreateChannelInput {
   weight?: number;
   config?: Record<string, unknown>;
   model_mapping?: Record<string, string | string[]>;
+  /** 被关闭的映射对：[from, to] 数组（迁移 041）。 */
+  model_mapping_disabled?: string[][];
   timeout_secs?: number;
   // --- T02 optional new identity fields (missing => legacy inference) ---
   protocol?: "openai" | "anthropic" | "ollama" | string;
@@ -109,6 +113,8 @@ export interface UpdateChannelInput {
   weight?: number;
   config?: Record<string, unknown>;
   model_mapping?: Record<string, string | string[]>;
+  /** 被关闭的映射对：[from, to] 数组（迁移 041）。None = 保持不变。 */
+  model_mapping_disabled?: string[][];
   timeout_secs?: number;
   // --- T02 optional new identity fields. None = keep; explicit empty
   // native_endpoints is rejected by the backend. ---
@@ -477,6 +483,9 @@ export interface Settings {
   cache_ttl_secs: number;
   cache_threshold_percent: number;
   cache_embedding_model: string;
+  // 出站代理（VPN 固定转发端口，全局）
+  proxy_enabled: boolean;
+  proxy_url: string;
 }
 
 // Security rule types

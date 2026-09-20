@@ -1,22 +1,29 @@
 import { useMemo, useState } from "react";
-import { X, Plus, Check, ArrowRight, ChevronDown } from "lucide-react";
+import { X, Plus, Check, ArrowRight, ChevronDown, Power } from "lucide-react";
 
 // 模型映射行：支持重复 from（例如 auto -> model-a, auto -> model-b）。
 // 行为与旧版 ChannelForm 完全一致，仅作组件抽取。
+// showToggle=true 时显示开启/关闭按钮（渠道映射开关，迁移 041）。
 export function MappingRow({
   from,
   to,
+  enabled = true,
+  showToggle = false,
   availableTargets,
   existingFroms,
   onRemove,
   onChange,
+  onToggle,
 }: {
   from: string;
   to: string;
+  enabled?: boolean;
+  showToggle?: boolean;
   availableTargets: string[];
   existingFroms: string[];
   onRemove: () => void;
   onChange: (field: "from" | "to", value: string) => void;
+  onToggle?: () => void;
 }) {
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
@@ -30,7 +37,7 @@ export function MappingRow({
   }, [availableTargets, to]);
 
   return (
-    <div className="flex items-center gap-2 rounded-2xl border border-border bg-background/40 px-3 py-2.5">
+    <div className={`flex items-center gap-2 rounded-2xl border border-border bg-background/40 px-3 py-2.5 transition-opacity ${enabled ? "" : "opacity-45"}`}>
       {/* Left: mapping model name (what client requests) — input + dropdown */}
       <div className="relative flex-1 min-w-0">
         <input
@@ -145,6 +152,22 @@ export function MappingRow({
           </>
         )}
       </div>
+
+      {/* Enable/disable toggle (channel mappings only) */}
+      {showToggle && (
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`shrink-0 rounded-xl p-2 transition-colors ${
+            enabled
+              ? "text-emerald-500 hover:bg-emerald-500/10"
+              : "text-slate-300 hover:bg-slate-500/10 hover:text-slate-400"
+          }`}
+          title={enabled ? "点击关闭此映射" : "点击开启此映射"}
+        >
+          <Power size={15} />
+        </button>
+      )}
 
       {/* Remove button */}
       <button

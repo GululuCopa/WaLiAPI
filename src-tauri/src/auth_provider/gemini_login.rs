@@ -27,9 +27,11 @@ use tokio::sync::{oneshot, Mutex};
 
 use super::{ProviderError, ProviderPayload, RefreshedPayload};
 
-// Antigravity 桌面端使用公开 OAuth client。与 Codex/Kimi 一样，client ID
-// 由 provider 内置，用户点击登录即可进入浏览器授权；部署方可通过环境变量
-// 覆盖 client ID，并在上游要求时注入 client secret。
+// Antigravity 桌面端 OAuth client 为 confidential 类型：令牌交换必须携带
+// client_secret（Google 返回 400 invalid_request "client_secret is missing."）。
+// client_secret 属于敏感凭据，仓库与安装包均不内置，由部署方在运行时通过
+// 环境变量 `WALIAPI_ANTIGRAVITY_CLIENT_SECRET` 注入；未注入时不携带该字段。
+// 用户点击登录即可进入浏览器授权；client ID 亦可经环境变量覆盖。
 pub const ANTIGRAVITY_CLIENT_ID: &str =
     "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 pub const ANTIGRAVITY_CLIENT_ID_ENV: &str = "WALIAPI_ANTIGRAVITY_CLIENT_ID";
@@ -725,6 +727,20 @@ mod tests {
         let (client_id, client_secret) = login.credentials();
         assert_eq!(client_id, "test-antigravity-client-id");
         assert_eq!(client_secret, Some("test-antigravity-client-secret"));
+    }
+
+    // client_secret 不再内置：Google 令牌端点要求 Antigravity confidential
+    // client 携带 client_secret，部署方需通过 WALIAPI_ANTIGRAVITY_CLIENT_SECRET
+    // 在运行时注入；未注入时不携带该字段（token exchange 返回 400）。
+    #[test]
+    fn default_client_secret_comes_from_runtime_env() {
+        let login = GeminiLogin::new();
+        let (client_id, client_secret) = login.credentials();
+        assert_eq!(client_id, ANTIGRAVITY_CLIENT_ID);
+        assert_eq!(
+            client_secret,
+            configured_value(ANTIGRAVITY_CLIENT_SECRET_ENV).as_deref()
+        );
     }
 
     #[test]

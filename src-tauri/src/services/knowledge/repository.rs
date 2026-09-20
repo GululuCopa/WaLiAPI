@@ -434,9 +434,14 @@ impl KbRepository {
                 .bind(pages).bind(failed_pages).bind(doc_id).execute(&mut *tx).await?;
         }
         let dim = chunks.first().map(|chunk| chunk.embedding_dim).unwrap_or(0);
-        let revision = chunks.first()
+        let revision = chunks
+            .first()
             .and_then(|chunk| serde_json::from_str::<serde_json::Value>(&chunk.metadata).ok())
-            .and_then(|metadata| metadata.get("embedding_revision").and_then(serde_json::Value::as_i64))
+            .and_then(|metadata| {
+                metadata
+                    .get("embedding_revision")
+                    .and_then(serde_json::Value::as_i64)
+            })
             .unwrap_or(0);
         sqlx::query("UPDATE kb_knowledge_bases SET doc_count = (SELECT COUNT(*) FROM kb_documents WHERE kb_id = ?), chunk_count = (SELECT COUNT(*) FROM kb_chunks WHERE kb_id = ?), total_tokens = (SELECT COALESCE(SUM(token_count), 0) FROM kb_chunks WHERE kb_id = ?), embedding_dim = CASE WHEN embedding_dim = 0 AND embedding_revision = ? THEN ? ELSE embedding_dim END, updated_at = ? WHERE id = ?")
             .bind(kb_id).bind(kb_id).bind(kb_id).bind(revision).bind(dim).bind(&now).bind(kb_id)

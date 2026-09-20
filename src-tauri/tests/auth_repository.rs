@@ -237,18 +237,17 @@ async fn replace_auth_account_fails_closed_on_identity_or_provider_precondition_
 async fn mark_invalid_persists_reason_and_preserves_attributes() {
     let repo = Repository::new(fresh_db().await);
     let account = repo
-        .upsert_by_provider_account_id(&upsert(
-            "kimi",
-            "kimi-acct",
-            "Kimi",
-            json!({"token": "x"}),
-        ))
+        .upsert_by_provider_account_id(&upsert("kimi", "kimi-acct", "Kimi", json!({"token": "x"})))
         .await
         .unwrap();
 
-    repo.mark_invalid(&account.id, Some("2026-08-10T00:00:00Z"), Some("payment_required"))
-        .await
-        .unwrap();
+    repo.mark_invalid(
+        &account.id,
+        Some("2026-08-10T00:00:00Z"),
+        Some("payment_required"),
+    )
+    .await
+    .unwrap();
 
     let stored = repo.get_auth_account(&account.id).await.unwrap();
     assert_eq!(stored.status, "invalid");
@@ -256,7 +255,10 @@ async fn mark_invalid_persists_reason_and_preserves_attributes() {
     let attributes: serde_json::Value = serde_json::from_str(&stored.attributes_json).unwrap();
     assert_eq!(attributes["invalidation_reason"], "payment_required");
     assert_eq!(attributes["email"], "person@example.test");
-    assert_eq!(stored.next_retry_after.as_deref(), Some("2026-08-10T00:00:00Z"));
+    assert_eq!(
+        stored.next_retry_after.as_deref(),
+        Some("2026-08-10T00:00:00Z")
+    );
 
     // Marking invalid again with no reason keeps a previously stored reason.
     repo.mark_invalid(&account.id, None, None).await.unwrap();

@@ -583,7 +583,8 @@ async fn dispatch_scoped(
                         _ => "获取指定知识库的文档、切片和 Token 统计。",
                     });
                     if name != "list_knowledge_bases" {
-                        tool["inputSchema"]["properties"]["kb_id"]["description"] = serde_json::json!("已授权且开启 MCP 的知识库 ID，必填。");
+                        tool["inputSchema"]["properties"]["kb_id"]["description"] =
+                            serde_json::json!("已授权且开启 MCP 的知识库 ID，必填。");
                         let required = tool["inputSchema"]["required"]
                             .as_array_mut()
                             .expect("tool schema required");
@@ -592,7 +593,8 @@ async fn dispatch_scoped(
                         }
                         if name == "ask_knowledge_base" {
                             required.push(serde_json::json!("model"));
-                            tool["inputSchema"]["properties"]["model"]["description"] = serde_json::json!("已授权的生成模型，必填。");
+                            tool["inputSchema"]["properties"]["model"]["description"] =
+                                serde_json::json!("已授权的生成模型，必填。");
                         }
                     }
                     tool

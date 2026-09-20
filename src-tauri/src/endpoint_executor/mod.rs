@@ -866,11 +866,11 @@ fn first_sse_data_json(bytes: &[u8]) -> Option<Value> {
     None
 }
 
-fn client(timeout_secs: i64, is_stream: bool) -> reqwest::Client {
+fn client(timeout_secs: i64, is_stream: bool, proxy_url: Option<&str>) -> reqwest::Client {
     if is_stream {
-        crate::adaptor::streaming_client()
+        crate::adaptor::streaming_client(proxy_url)
     } else {
-        crate::adaptor::blocking_client(timeout_secs.max(1) as u64)
+        crate::adaptor::blocking_client(timeout_secs.max(1) as u64, proxy_url)
     }
 }
 
@@ -1017,7 +1017,12 @@ async fn send_request(
 ) -> Result<reqwest::Response, AttemptFailure> {
     let is_gemini = identity.legacy_executor_override.as_deref() == Some("gemini_native");
     let stream = is_stream_body(&attempt.encoded_body);
-    let c = client(channel.timeout_secs, stream);
+    // 渠道级出站代理：从渠道 config JSON 的 proxy 键解析（global/direct/custom）。
+    let proxy_url = crate::adaptor::ProxySetting::from_extra(
+        &serde_json::from_str::<serde_json::Value>(&channel.config).unwrap_or_default(),
+    )
+    .and_then(|p| p.resolve());
+    let c = client(channel.timeout_secs, stream, proxy_url.as_deref());
 
     if is_gemini {
         let url = gemini_url(
