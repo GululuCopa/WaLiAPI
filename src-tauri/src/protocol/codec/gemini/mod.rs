@@ -177,6 +177,64 @@ impl NonStreamDecoder for GeminiThenChatToMessages {
     }
 }
 
+/// Antigravity/Code Assist 不识别 Responses 的 namespace 工具 marker。
+///
+/// 这类工具是调用方用于分组或路由的元数据，不是 Gemini
+/// `functionDeclarations` 可以表达的工具类型。这里只移除 marker，
+/// 不猜测把它转换成 MCP 或 function；其他不支持的工具仍由后续校验拒绝。
+fn normalize_responses_for_gemini(body: &Value) -> Value {
+    let tools = body.get("tools").and_then(Value::as_array);
+    let tool_choice_is_namespace = body
+        .get("tool_choice")
+        .and_then(Value::as_object)
+        .and_then(|choice| choice.get("type"))
+        .and_then(Value::as_str)
+        == Some("namespace");
+
+    if tools.is_none() && !tool_choice_is_namespace {
+        return body.clone();
+    }
+
+    let mut normalized = body.clone();
+    let Some(normalized_object) = normalized.as_object_mut() else {
+        return body.clone();
+    };
+
+    let filtered_tools: Vec<Value> = tools
+        .map(|items| {
+            items
+                .iter()
+                .filter(|tool| tool.get("type").and_then(Value::as_str) != Some("namespace"))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    let removed_count = tools
+        .map(|items| items.len().saturating_sub(filtered_tools.len()))
+        .unwrap_or_default();
+
+    if removed_count == 0 && !tool_choice_is_namespace {
+        return body.clone();
+    }
+
+    if tools.is_some() {
+        if filtered_tools.is_empty() {
+            normalized_object.remove("tools");
+        } else {
+            normalized_object.insert("tools".to_owned(), Value::Array(filtered_tools));
+        }
+    }
+    if tool_choice_is_namespace {
+        normalized_object.remove("tool_choice");
+    }
+
+    tracing::debug!(
+        removed_namespace_tools = removed_count,
+        "normalized unsupported namespace tools for Antigravity Gemini conversion"
+    );
+    normalized
+}
+
 fn validate_responses_for_gemini(body: &Value) -> Result<(), UnsupportedFeatures> {
     let mut rejected = Vec::new();
 
@@ -333,8 +391,9 @@ impl CodecDirection for ResponsesToGemini {
         request: &Value,
         model: &str,
     ) -> Result<(Value, ConversionContext), PrepareError> {
-        validate_responses_for_gemini(request)?;
-        let mut chat = crate::protocol::responses_to_openai(request)?;
+        let normalized = normalize_responses_for_gemini(request);
+        validate_responses_for_gemini(&normalized)?;
+        let mut chat = crate::protocol::responses_to_openai(&normalized)?;
         chat.as_object_mut()
             .ok_or_else(|| {
                 UnsupportedFeatures::single(
@@ -586,6 +645,64 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.message.contains("SAFETY"));
+    }
+
+    #[test]
+    fn responses_namespace_tools_are_ignored_for_antigravity() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "input": "hi",
+            "tools": [
+                {"type": "namespace", "name": "shell", "tools": []},
+                {
+                    "type": "function",
+                    "name": "lookup",
+                    "description": "look up a value",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            ],
+            "tool_choice": {"type": "namespace", "name": "shell"}
+        });
+
+        let (encoded, _) = RESPONSES_TO_GEMINI
+            .encode_request(&req, "gemini-2.5-flash")
+            .unwrap();
+        assert_eq!(
+            encoded["tools"][0]["functionDeclarations"][0]["name"],
+            "lookup"
+        );
+        assert!(encoded.get("toolConfig").is_none());
+    }
+
+    #[test]
+    fn responses_only_namespace_tools_are_removed() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "input": "hi",
+            "tools": [{"type": "namespace", "name": "shell", "tools": []}],
+            "tool_choice": {"type": "namespace", "name": "shell"}
+        });
+
+        let (encoded, _) = RESPONSES_TO_GEMINI
+            .encode_request(&req, "gemini-2.5-flash")
+            .unwrap();
+        assert!(encoded.get("tools").is_none());
+        assert!(encoded.get("toolConfig").is_none());
+    }
+
+    #[test]
+    fn responses_namespace_tool_choice_is_removed_without_tools() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "input": "hi",
+            "tool_choice": {"type": "namespace", "name": "shell"}
+        });
+
+        let (encoded, _) = RESPONSES_TO_GEMINI
+            .encode_request(&req, "gemini-2.5-flash")
+            .unwrap();
+        assert!(encoded.get("tools").is_none());
+        assert!(encoded.get("toolConfig").is_none());
     }
 
     #[test]

@@ -73,14 +73,23 @@ function exportFileName(account: AuthAccount) {
   return `${base || "codex-auth"}.json`;
 }
 
+function providerMark(provider: AuthProviderInfo) {
+  if (provider.id === "kimi" || provider.iconKey === "moonshot") return "☾";
+  if (provider.id === "gemini" || provider.iconKey === "google") return "G";
+  if (provider.id === "grok" || provider.iconKey === "grok") return "✦";
+  return "⌘";
+}
+
 function EmptyAccountSlot({ provider, onLogin, onSelectImportFormat, busy }: { provider: AuthProviderInfo; onLogin: () => void; onSelectImportFormat: (format: ImportFormat) => void; busy: boolean }) {
-  const icon = provider.iconKey === "moonshot" ? "☾" : provider.iconKey === "google" ? "G" : "⌘";
+  const icon = providerMark(provider);
   const displayName = provider.displayName;
   const hint = provider.id === "kimi"
     ? "设备码授权：在浏览器确认后返回。"
     : provider.id === "gemini"
       ? "通过 Antigravity OAuth 完成 Google 授权；旧 Gemini CLI 凭据需重新登录"
-      : "浏览器 OAuth 登录（PKCE）或从本机 ~/.codex/auth.json 导入";
+      : provider.id === "grok"
+        ? "设备码授权：在浏览器确认后返回。"
+        : "浏览器 OAuth 登录（PKCE）或从本机 ~/.codex/auth.json 导入";
   return <section className="flex min-h-80 flex-col items-center justify-center rounded-[24px] border border-dashed border-border bg-card/50 p-6 text-center"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-success/10 text-xl font-bold text-success">{icon}</div><h2 className="mt-4 font-semibold">＋ 登录 {displayName} 账号</h2><p className="mt-2 max-w-xs text-sm leading-6 text-muted-foreground">{hint}</p><div className="mt-5 flex flex-wrap justify-center gap-2"><button onClick={onLogin} disabled={busy} className="action-primary"><KeyRound size={16} />登录</button>{provider.supportsImport && <ImportDropdown busy={busy} providerId={provider.id} onSelect={onSelectImportFormat} />}</div></section>;
 }
 
@@ -118,10 +127,10 @@ export function AuthChannelsPage() {
 
   const activeProvider = providers.find((p) => p.id === selectedProvider) ?? {
     id: selectedProvider,
-    displayName: selectedProvider === "kimi" ? "Kimi Code" : selectedProvider === "gemini" ? "Antigravity" : "Codex",
-    iconKey: selectedProvider === "kimi" ? "moonshot" : selectedProvider === "gemini" ? "google" : "codex",
-    loginMode: selectedProvider === "kimi" ? "device_code" : "browser_callback",
-    loginMethods: selectedProvider === "kimi"
+    displayName: selectedProvider === "kimi" ? "Kimi Code" : selectedProvider === "gemini" ? "Antigravity" : selectedProvider === "grok" ? "Grok" : "Codex",
+    iconKey: selectedProvider === "kimi" ? "moonshot" : selectedProvider === "gemini" ? "google" : selectedProvider === "grok" ? "grok" : "codex",
+    loginMode: selectedProvider === "kimi" || selectedProvider === "grok" ? "device_code" : "browser_callback",
+    loginMethods: selectedProvider === "kimi" || selectedProvider === "grok"
       ? ["device_code" as const]
       : selectedProvider === "gemini"
         ? ["browser_callback" as const]

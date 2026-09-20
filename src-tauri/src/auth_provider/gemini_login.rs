@@ -27,8 +27,11 @@ use tokio::sync::{oneshot, Mutex};
 
 use super::{ProviderError, ProviderPayload, RefreshedPayload};
 
-// OAuth client material 由部署环境提供，禁止写入仓库或日志。
-// client ID 与 secret 必须成对使用，不能拿旧 Gemini CLI client 刷新本流程令牌。
+// Antigravity 桌面端使用公开 OAuth client。与 Codex/Kimi 一样，client ID
+// 由 provider 内置，用户点击登录即可进入浏览器授权；部署方可通过环境变量
+// 覆盖 client ID，并在上游要求时注入 client secret。
+pub const ANTIGRAVITY_CLIENT_ID: &str =
+    "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 pub const ANTIGRAVITY_CLIENT_ID_ENV: &str = "WALIAPI_ANTIGRAVITY_CLIENT_ID";
 pub const ANTIGRAVITY_CLIENT_SECRET_ENV: &str = "WALIAPI_ANTIGRAVITY_CLIENT_SECRET";
 pub const GOOGLE_OAUTH_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -44,7 +47,7 @@ const OAUTH_SCOPES: &str = "https://www.googleapis.com/auth/cloud-platform https
 pub struct GeminiLogin {
     authorize_url: String,
     token_url: String,
-    client_id: Option<String>,
+    client_id: String,
     client_secret: Option<String>,
     timeout: Duration,
     client: reqwest::Client,
@@ -69,8 +72,9 @@ impl GeminiLogin {
         Self {
             authorize_url: GOOGLE_OAUTH_AUTHORIZE_URL.to_owned(),
             token_url: GOOGLE_OAUTH_TOKEN_URL.to_owned(),
-            client_id: configured_secret(ANTIGRAVITY_CLIENT_ID_ENV),
-            client_secret: configured_secret(ANTIGRAVITY_CLIENT_SECRET_ENV),
+            client_id: configured_value(ANTIGRAVITY_CLIENT_ID_ENV)
+                .unwrap_or_else(|| ANTIGRAVITY_CLIENT_ID.to_owned()),
+            client_secret: configured_value(ANTIGRAVITY_CLIENT_SECRET_ENV),
             timeout: Duration::from_secs(5 * 60),
             client: http_client(),
         }
@@ -80,18 +84,15 @@ impl GeminiLogin {
         Self {
             authorize_url: authorize_url.into(),
             token_url: token_url.into(),
-            client_id: Some("test-antigravity-client-id".to_owned()),
+            client_id: "test-antigravity-client-id".to_owned(),
             client_secret: Some("test-antigravity-client-secret".to_owned()),
             timeout: Duration::from_secs(5 * 60),
             client: http_client(),
         }
     }
 
-    fn credentials(&self) -> Result<(&str, &str), ProviderError> {
-        match (self.client_id.as_deref(), self.client_secret.as_deref()) {
-            (Some(client_id), Some(client_secret)) => Ok((client_id, client_secret)),
-            _ => Err(ProviderError::LoginFailed),
-        }
+    fn credentials(&self) -> (&str, Option<&str>) {
+        (self.client_id.as_str(), self.client_secret.as_deref())
     }
 
     #[cfg(test)]
@@ -121,10 +122,12 @@ impl GeminiLogin {
             return Err(ProviderError::LoginCancelled);
         }
         runtime.set_step(super::LoginStep::Preparing).await;
-        let (client_id, _) = self.credentials()?;
+        let (client_id, _) = self.credentials();
         // listener 只绑定回环地址；授权协议使用 localhost redirect，二者都不会
         // 把回调端口暴露到局域网。state mismatch 在 callback 层拒绝且不消耗 session。
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        // Google redirect 使用 localhost；跟随本机 localhost 的地址族，避免
+        // 浏览器优先访问 ::1 时，回调却只监听 127.0.0.1。
+        let listener = tokio::net::TcpListener::bind("localhost:0")
             .await
             .map_err(|_| ProviderError::LoginFailed)?;
         let port = listener
@@ -180,18 +183,21 @@ impl GeminiLogin {
         redirect_uri: &str,
         code: &str,
     ) -> Result<OAuthTokens, ProviderError> {
-        let (client_id, client_secret) = self.credentials()?;
+        let (client_id, client_secret) = self.credentials();
+        let form = with_optional_client_secret(
+            vec![
+                ("code", code),
+                ("client_id", client_id),
+                ("redirect_uri", redirect_uri),
+                ("grant_type", "authorization_code"),
+            ],
+            client_secret,
+        );
         let response = self
             .client
             .post(&self.token_url)
             .header("Accept", "application/json")
-            .form(&[
-                ("code", code),
-                ("client_id", client_id),
-                ("client_secret", client_secret),
-                ("redirect_uri", redirect_uri),
-                ("grant_type", "authorization_code"),
-            ])
+            .form(&form)
             .send()
             .await
             .map_err(|_| ProviderError::TokenExchangeFailed)?;
@@ -221,7 +227,6 @@ impl GeminiLogin {
                     })
                 }
                 Err(RefreshError::Unauthorized) => return Err(ProviderError::Unauthorized),
-                Err(RefreshError::Configuration) => return Err(ProviderError::LoginFailed),
                 Err(RefreshError::Protocol) => return Err(ProviderError::Protocol),
                 Err(RefreshError::Retryable) => {
                     attempt += 1;
@@ -235,19 +240,20 @@ impl GeminiLogin {
     }
 
     async fn refresh_once(&self, refresh: &str) -> Result<OAuthTokens, RefreshError> {
-        let (client_id, client_secret) = self
-            .credentials()
-            .map_err(|_| RefreshError::Configuration)?;
+        let (client_id, client_secret) = self.credentials();
+        let form = with_optional_client_secret(
+            vec![
+                ("client_id", client_id),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh),
+            ],
+            client_secret,
+        );
         let response = self
             .client
             .post(&self.token_url)
             .header("Accept", "application/json")
-            .form(&[
-                ("client_id", client_id),
-                ("client_secret", client_secret),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh),
-            ])
+            .form(&form)
             .send()
             .await
             .map_err(|_| RefreshError::Retryable)?;
@@ -284,7 +290,6 @@ fn http_client() -> reqwest::Client {
 }
 
 enum RefreshError {
-    Configuration,
     Unauthorized,
     Retryable,
     Protocol,
@@ -305,8 +310,18 @@ fn authorization_url(authorize: &str, client_id: &str, redirect_uri: &str, state
     url.to_string()
 }
 
-fn configured_secret(name: &str) -> Option<String> {
+fn configured_value(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+fn with_optional_client_secret<'a>(
+    mut form: Vec<(&'a str, &'a str)>,
+    client_secret: Option<&'a str>,
+) -> Vec<(&'a str, &'a str)> {
+    if let Some(client_secret) = client_secret {
+        form.push(("client_secret", client_secret));
+    }
+    form
 }
 
 // 旧 payload 必须 fail closed：不能用新的 Antigravity client 刷新或发送旧凭据。
@@ -324,6 +339,24 @@ pub fn ensure_antigravity_payload(payload: &ProviderPayload) -> Result<(), Provi
 
 async fn parse_token_response(response: reqwest::Response) -> Result<OAuthTokens, ProviderError> {
     if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let parsed = serde_json::from_str::<Value>(&body).ok();
+        let error = parsed
+            .as_ref()
+            .and_then(|value| value.get("error"))
+            .and_then(Value::as_str);
+        let description = parsed
+            .as_ref()
+            .and_then(|value| value.get("error_description"))
+            .and_then(Value::as_str);
+        tracing::warn!(
+            provider = "antigravity",
+            status = %status,
+            error = ?error,
+            error_description = ?description,
+            "Google OAuth token exchange rejected"
+        );
         return Err(ProviderError::TokenExchangeFailed);
     }
     let body: Value = response.json().await.map_err(|_| ProviderError::Protocol)?;
@@ -682,6 +715,22 @@ mod tests {
         })))
         .unwrap_err();
         assert_eq!(err, ProviderError::CredentialMigrationRequired);
+    }
+
+    #[test]
+    fn production_client_has_a_builtin_public_identifier() {
+        assert!(ANTIGRAVITY_CLIENT_ID.ends_with(".apps.googleusercontent.com"));
+        let login =
+            GeminiLogin::with_endpoints("http://127.0.0.1/authorize", "http://127.0.0.1/token");
+        let (client_id, client_secret) = login.credentials();
+        assert_eq!(client_id, "test-antigravity-client-id");
+        assert_eq!(client_secret, Some("test-antigravity-client-secret"));
+    }
+
+    #[test]
+    fn public_client_form_omits_unconfigured_secret() {
+        let form = with_optional_client_secret(vec![("client_id", ANTIGRAVITY_CLIENT_ID)], None);
+        assert_eq!(form, vec![("client_id", ANTIGRAVITY_CLIENT_ID)]);
     }
 
     #[test]

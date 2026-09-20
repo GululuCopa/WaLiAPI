@@ -16,6 +16,7 @@ pub enum ProviderKind {
     Codex,
     Kimi,
     Gemini,
+    Grok,
     Other(String),
 }
 
@@ -25,6 +26,7 @@ impl ProviderKind {
             Self::Codex => "codex",
             Self::Kimi => "kimi",
             Self::Gemini => "gemini",
+            Self::Grok => "grok",
             Self::Other(value) => value,
         }
     }
@@ -36,6 +38,7 @@ impl From<&str> for ProviderKind {
             "codex" => Self::Codex,
             "kimi" => Self::Kimi,
             "gemini" => Self::Gemini,
+            "grok" => Self::Grok,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -433,6 +436,14 @@ mod tests {
         assert_eq!(kind.as_str(), "gemini");
         assert_eq!(ProviderKind::from("gemini"), ProviderKind::Gemini);
         assert_eq!(kind.to_string(), "gemini");
+    }
+
+    #[test]
+    fn provider_kind_grok_round_trip() {
+        let kind = ProviderKind::Grok;
+        assert_eq!(kind.as_str(), "grok");
+        assert_eq!(ProviderKind::from("grok"), ProviderKind::Grok);
+        assert_eq!(kind.to_string(), "grok");
     }
 
     #[test]
