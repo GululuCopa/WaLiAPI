@@ -369,3 +369,16 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+#[cfg(test)]
+mod migration_compatibility_tests {
+    #[test]
+    fn includes_channel_mapping_disabled_migration() {
+        let migration = sqlx::migrate!("./migrations")
+            .iter()
+            .find(|migration| migration.version == 41)
+            .expect("migration 041 must remain available for v0.3.4 databases");
+
+        assert_eq!(migration.description, "channel mapping disabled");
+    }
+}
