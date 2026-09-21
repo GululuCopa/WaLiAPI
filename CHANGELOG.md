@@ -8,6 +8,10 @@
 - ✨ **Antigravity OAuth（Gemini）登录**：新增 Antigravity 作为 Gemini 渠道的 OAuth 登录方式（`gemini_backend`），Gemini 渠道支持 Antigravity 账号接入（PR #121，@GululuCopa）
 - 🐛 **Grok 与 Antigravity namespace 工具兼容**：兼容两者工具调用的 namespace 前缀，修复工具调用在协议转换中的匹配问题（@GululuCopa）
 
+### 新增渠道
+
+- ✨ **新增 StepFun（阶跃星辰）渠道预设**：新增 OpenAI 兼容渠道类型 StepFun（`stepfun`，Base URL `https://api.stepfun.com/v1`），内置 5 条静态模型建议——step-5-preview / step-3.7-flash / step-3.5-flash / step-3.5-flash-2603 / step-1o-turbo-vision（旗舰在前，顺序即预填与连通性探测默认），预设仅声明 Chat Completions 端点与 Bearer 鉴权，模型建议可经「同步上游模型」拉取 `GET /v1/models` 覆盖；渠道导入导出的 v2 身份信任白名单、前后端图标与渠道类型定义同步接入
+
 ### 渠道管理
 
 - ✨ **模型映射支持开启/关闭**（迁移 041）：每条模型映射可单独停用，`model_mapping_disabled` 记录被关闭的映射对；路由匹配、上游模型解析、`/v1/models` 聚合均跳过被关闭的映射；映射行点击开关即时切换，导入导出同步兼容该字段

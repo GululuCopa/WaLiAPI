@@ -301,7 +301,7 @@ graph TD
         U2[Claude]
         U3[DeepSeek]
         U4[Gemini]
-        U5[通义 · 智谱 · Moonshot · 豆包 · Ollama]
+        U5[通义 · 智谱 · Moonshot · StepFun · 豆包 · Ollama]
     end
 ```
 
@@ -377,7 +377,7 @@ flowchart LR
 
 ### 🔌 多渠道管理
 
-- 支持 **10 种渠道类型**：OpenAI、DeepSeek、Claude、Gemini、智谱、通义、Moonshot、豆包、Ollama 及自定义渠道
+- 支持 **11 种渠道类型**：OpenAI、DeepSeek、Claude、Gemini、智谱、通义、Moonshot、阶跃星辰 StepFun、豆包、Ollama 及自定义渠道
 - 优先级 + 权重的负载均衡策略，自动故障切换
 - **多 Key 负载均衡**：单个渠道可配置多个 API Key，每个 Key 独立设置权重，请求按权重随机选择 Key 转发，分散单渠道并发压力
 - **渠道复制**：一键复制现有渠道配置，快速创建相似渠道，免去重复配置
@@ -685,6 +685,10 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 - ✨ **Grok OAuth 登录**：新增 Grok 渠道 OAuth 授权登录，支持 Token 自动刷新与协议感知模型发现，Auth 渠道页可直接登录 Grok 账号（PR #122，@GululuCopa）
 - ✨ **Antigravity OAuth（Gemini）登录**：新增 Antigravity 作为 Gemini 渠道的 OAuth 登录方式，Gemini 渠道支持 Antigravity 账号接入（PR #121，@GululuCopa）
 - 🐛 **Grok 与 Antigravity namespace 工具兼容**：兼容两者工具调用的 namespace 前缀，修复工具调用在协议转换中的匹配问题（@GululuCopa）
+
+#### 新增渠道
+
+- ✨ **新增 StepFun（阶跃星辰）渠道预设**：新增 OpenAI 兼容渠道类型 StepFun（`stepfun`，Base URL `https://api.stepfun.com/v1`），内置 5 条静态模型建议——step-5-preview / step-3.7-flash / step-3.5-flash / step-3.5-flash-2603 / step-1o-turbo-vision（旗舰在前，顺序即预填与连通性探测默认），预设仅声明 Chat Completions 端点与 Bearer 鉴权，模型建议可经「同步上游模型」拉取 `GET /v1/models` 覆盖；渠道导入导出的 v2 身份信任白名单、前后端图标与渠道类型定义同步接入
 
 #### 渠道管理
 
