@@ -414,6 +414,10 @@ pub struct AuthAccount {
     pub quota_json: Option<String>,
     pub model_states_json: String,
     pub model_mapping_json: String,
+    /// 被关闭的映射对（迁移 042）：JSON 数组，元素为 [from, to]。
+    /// 空数组 = 全部映射开启。`#[sqlx(default)]` 兼容仅迁移到旧版本的测试库。
+    #[sqlx(default)]
+    pub model_mapping_disabled: String,
     pub attributes_json: String,
     pub payload_json: String,
     pub last_refreshed_at: Option<String>,
@@ -441,6 +445,14 @@ impl AuthAccount {
             return Ok(serde_json::json!({}));
         }
         serde_json::from_str(&self.model_mapping_json)
+    }
+
+    /// 解析 `model_mapping` 并剔除被关闭的映射对（迁移 042，与渠道
+    /// `Channel::active_model_mapping` 对齐）。路由匹配、别名目标解析、
+    /// `/v1/models` 聚合都必须使用本方法而非直接读原始列。
+    pub fn active_model_mapping(&self) -> serde_json::Value {
+        let mapping = self.model_mapping().unwrap_or_default();
+        filter_disabled_mapping(mapping, &self.model_mapping_disabled)
     }
 }
 

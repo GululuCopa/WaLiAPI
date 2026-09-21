@@ -3,6 +3,7 @@ import { Fragment, useState } from "react";
 import type { ReactNode } from "react";
 import type { AuthAccount, AuthQuotaState, AuthQuotaWindow, AuthModelState } from "../../types";
 import { quotaDisplayState } from "./quotaDisplay";
+import { MappingChips } from "../MappingChips";
 
 const WINDOW_MINUTES = {
   fiveHours: 5 * 60,
@@ -21,6 +22,8 @@ type AccountActions = {
   onSync: () => void;
   onExport: () => void;
   onRelogin: () => void;
+  /** 映射对快捷开启/关闭（迁移 042） */
+  onToggleMapping: (from: string, to: string, currentlyOff: boolean) => void;
 };
 
 type ActionButtonProps = {
@@ -255,13 +258,19 @@ export function AccountList({ accounts, actionFor, onReorder }: { accounts: Auth
                 </div>
               </div>
 
-              {/* 展开区域 */}
+              {/* 展开区域（内部交互不触发行点击折叠） */}
               {expanded && (
-                <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                <div className="mt-3 space-y-3 border-t border-slate-100 pt-3" onClick={(e) => e.stopPropagation()}>
                   <div>
                     <div className="mb-1.5 text-xs font-semibold text-slate-500">可用模型 ({account.models.length})</div>
                     <ModelDetails models={account.models} />
                   </div>
+                  {account.model_mapping && Object.keys(account.model_mapping).length > 0 && (
+                    <div>
+                      <div className="mb-1.5 text-xs font-semibold text-slate-500">映射模型</div>
+                      <MappingChips mapping={account.model_mapping} disabledPairs={account.model_mapping_disabled} onToggle={actions.onToggleMapping} />
+                    </div>
+                  )}
                   <div className="flex items-center gap-4 text-xs text-slate-500">
                     <span className="text-slate-400">最近刷新：</span>
                     <span>{displayTime(account.last_refreshed_at) || "未刷新"}</span>

@@ -47,6 +47,8 @@ pub struct AuthAccountDto {
     pub models: Vec<ModelState>,
     pub quota: Option<QuotaState>,
     pub model_mapping: serde_json::Value,
+    /// 被关闭的映射对（迁移 042）：`[[from, to], ...]`，供前端渲染开关状态。
+    pub model_mapping_disabled: serde_json::Value,
     pub expires_at: Option<String>,
     #[serde(rename = "hasRefreshToken")]
     pub has_refresh_token: bool,
@@ -98,6 +100,7 @@ impl TryFrom<AuthAccountSummary> for AuthAccountDto {
             models: value.models.models,
             quota: value.quota,
             model_mapping: value.model_mapping,
+            model_mapping_disabled: value.model_mapping_disabled,
             expires_at: value.expires_at,
             has_refresh_token: value.has_refresh_token,
             last_refreshed_at: value.last_refreshed_at,
@@ -147,6 +150,8 @@ pub struct AuthUpdateInput {
     pub priority: i64,
     pub weight: i64,
     pub model_mapping: Option<serde_json::Value>,
+    /// 被关闭的映射对（迁移 042）：`[[from, to], ...]`。None = 不修改。
+    pub model_mapping_disabled: Option<serde_json::Value>,
 }
 
 /// Renderer-safe interactive-login session.  It intentionally contains no
@@ -1074,6 +1079,29 @@ pub async fn auth_toggle(
     )
 }
 
+/// 映射对快捷开启/关闭（迁移 042）：整体替换 `model_mapping_disabled`，
+/// 不触碰其余字段。前端（卡片/列表视图）乐观更新后调用。
+#[tauri::command]
+pub async fn auth_update_mapping_disabled(
+    id: String,
+    disabled: Vec<Vec<String>>,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<AuthAccountDto, String> {
+    validate_account_id(&id)?;
+    let json = serde_json::to_string(&disabled).map_err(|_| storage_error())?;
+    let repository = Repository::new(state.db.pool.clone());
+    repository
+        .update_auth_account_mapping_disabled(&id, &json)
+        .await
+        .map_err(|_| storage_error())?;
+    dto_from_account(
+        repository
+            .get_auth_account(&id)
+            .await
+            .map_err(|_| storage_error())?,
+    )
+}
+
 #[tauri::command]
 pub async fn auth_quota_status(
     id: String,
@@ -1108,6 +1136,18 @@ pub async fn auth_update(
         .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string()))
         .unwrap_or_else(|| "{}".to_string());
     let repository = Repository::new(state.db.pool.clone());
+    // None = 不修改（沿用库中现值）；Some = 整体替换。
+    let current_disabled = repository
+        .get_auth_account(&input.id)
+        .await
+        .ok()
+        .map(|account| account.model_mapping_disabled)
+        .unwrap_or_else(|| "[]".to_string());
+    let model_mapping_disabled_json = input
+        .model_mapping_disabled
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()))
+        .unwrap_or(current_disabled);
     repository
         .update_auth_account(
             &input.id,
@@ -1115,6 +1155,7 @@ pub async fn auth_update(
             input.priority,
             input.weight,
             &model_mapping_json,
+            &model_mapping_disabled_json,
         )
         .await
         .map_err(|_| storage_error())?;
@@ -1167,6 +1208,7 @@ mod tests {
             model_states_json: json!({"version":1,"models":[]}).to_string(),
             attributes_json: json!({"email":"person@example.test","plan_type":"plus","ignored":"secret"}).to_string(),
             model_mapping_json: "{}".to_string(),
+            model_mapping_disabled: "[]".to_string(),
             payload_json: json!({"access_token":ACCESS,"refresh_token":REFRESH,"id_token":ID_TOKEN,"expires_at":"2030-01-01T00:00:00Z"}).to_string(),
             last_refreshed_at: None, last_models_sync_at: None, next_refresh_after: None,
             next_retry_after: None, created_at: "2026-01-01T00:00:00Z".into(), updated_at: "2026-01-01T00:00:00Z".into(),
@@ -1182,6 +1224,7 @@ mod tests {
                 priority: 0,
                 weight: 1,
                 model_mapping: None,
+                model_mapping_disabled: None,
             },
             AuthUpdateInput {
                 id: "account-1".into(),
@@ -1189,6 +1232,7 @@ mod tests {
                 priority: -1,
                 weight: 1,
                 model_mapping: None,
+                model_mapping_disabled: None,
             },
             AuthUpdateInput {
                 id: "account-1".into(),
@@ -1196,6 +1240,7 @@ mod tests {
                 priority: 0,
                 weight: 0,
                 model_mapping: None,
+                model_mapping_disabled: None,
             },
         ] {
             assert!(validate_update(&input).is_err());

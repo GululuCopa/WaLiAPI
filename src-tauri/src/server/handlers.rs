@@ -423,6 +423,7 @@ mod auth_routeplan_rollout_tests {
             })
             .to_string(),
             model_mapping_json: "{}".into(),
+            model_mapping_disabled: "[]".into(),
             attributes_json: "{}".into(),
             payload_json: "{}".into(),
             last_refreshed_at: None,
@@ -4325,19 +4326,19 @@ fn collect_auth_account_models(
                 }
             }
         }
-        if let Ok(mapping) = account.model_mapping() {
-            if let Some(obj) = mapping.as_object() {
-                for key in obj.keys() {
-                    if visibility
-                        .map(|rules| rules.model_allowed(key))
-                        .unwrap_or(true)
-                        && seen.insert(key.clone())
-                    {
-                        out.push(ConfigModel {
-                            id: key.clone(),
-                            owned_by: account.provider.clone(),
-                        });
-                    }
+        // Disabled mapping pairs (042) are excluded from the catalog.
+        let mapping = account.active_model_mapping();
+        if let Some(obj) = mapping.as_object() {
+            for key in obj.keys() {
+                if visibility
+                    .map(|rules| rules.model_allowed(key))
+                    .unwrap_or(true)
+                    && seen.insert(key.clone())
+                {
+                    out.push(ConfigModel {
+                        id: key.clone(),
+                        owned_by: account.provider.clone(),
+                    });
                 }
             }
         }
@@ -4963,6 +4964,7 @@ mod list_models_tests {
             })
             .to_string(),
             model_mapping_json: mapping.to_string(),
+            model_mapping_disabled: "[]".into(),
             attributes_json: "{}".to_string(),
             payload_json: "{}".to_string(),
             last_refreshed_at: None,

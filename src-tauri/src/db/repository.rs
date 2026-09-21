@@ -1177,6 +1177,7 @@ impl Repository {
         priority: i64,
         weight: i64,
         model_mapping_json: &str,
+        model_mapping_disabled_json: &str,
     ) -> Result<(), sqlx::Error> {
         if label.trim().is_empty() || priority < 0 || weight < 1 {
             return Err(sqlx::Error::Protocol(
@@ -1184,12 +1185,31 @@ impl Repository {
             ));
         }
         sqlx::query(
-            "UPDATE auth_accounts SET label = ?, priority = ?, weight = ?, model_mapping_json = ?, updated_at = ? WHERE id = ?",
+            "UPDATE auth_accounts SET label = ?, priority = ?, weight = ?, model_mapping_json = ?, model_mapping_disabled = ?, updated_at = ? WHERE id = ?",
         )
         .bind(label)
         .bind(priority)
         .bind(weight)
         .bind(model_mapping_json)
+        .bind(model_mapping_disabled_json)
+        .bind(now_iso())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 映射对快捷开启/关闭（迁移 042）：只重写 model_mapping_disabled，
+    /// 不触碰 label/priority/weight/model_mapping。前端乐观更新后调用。
+    pub async fn update_auth_account_mapping_disabled(
+        &self,
+        id: &str,
+        model_mapping_disabled_json: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE auth_accounts SET model_mapping_disabled = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(model_mapping_disabled_json)
         .bind(now_iso())
         .bind(id)
         .execute(&self.pool)

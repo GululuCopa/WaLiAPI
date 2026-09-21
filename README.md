@@ -4,7 +4,7 @@
 
 ### 本地 LLM API 网关 · 多协议接入 · 知识库 RAG · MCP 工具服务
 
-[![Version](https://img.shields.io/badge/version-0.3.4-blue.svg)](./src-tauri/tauri.conf.json)
+[![Version](https://img.shields.io/badge/version-0.3.5-blue.svg)](./src-tauri/tauri.conf.json)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#-使用方式)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-orange.svg)](https://tauri.app)
@@ -42,7 +42,7 @@
 |:---:|:---|:---|:---:|:---|:---|
 | 🏆 | **小傅哥** | [@fuzhengwei](https://github.com/fuzhengwei) | 283 | `+61,165 / -7,262` | 项目创建者 · 核心架构 · 多渠道网关 · 协议转换 · 安全审计 · 知识库引擎 · Wiki 知识引擎 · MCP Server · Codex 账号切换 |
 | ⚡ | **xian** | [@zsxink](https://github.com/zsxink) | 140 | `+97,192 / -24,477` | Anthropic Messages 协议兼容 · 渠道协议重构（T01-T14）· codec 加固 · SSRF 防护 · SSE 帧重组 · models 接口 · Kimi Code Auth · protocol 模块结构化重构 · Auth 多格式导入 |
-| 🛠 | **chyuan** | [@chyuan-cuihongyuan](https://github.com/chyuan-cuihongyuan) | 55 | `+11,613 / -1,727` | 统一上游重试判定决策函数与真值表测试 · 渠道健康探测与候选排序 · 语义缓存 · 流式内容持久化与断线续传 · X-Request-Id / OTLP 可观测性 · 知识库增量索引、查询改写与混合检索 · 配额强化 · 401/403 下游脱敏 |
+| 🛠 | **chyuan** | [@chyuan-cuihongyuan](https://github.com/chyuan-cuihongyuan) | 56 | `+11,881 / -1,729` | 统一上游重试判定决策函数与真值表测试 · 渠道健康探测与候选排序 · 语义缓存 · 流式内容持久化与断线续传 · X-Request-Id / OTLP 可观测性 · 知识库增量索引、查询改写与混合检索 · 配额强化 · 401/403 下游脱敏 · StepFun 渠道预设接入（PR #127） |
 | 🚀 | **GululuCopa** | [@GululuCopa](https://github.com/GululuCopa) | 6 | `+8,465 / -92` | Grok OAuth 登录（PR #122）· Antigravity OAuth Gemini 登录（PR #121）· Grok 与 Antigravity namespace 工具兼容修复 |
 | 🐳 | **Fla1337** | [@Fla1337](https://github.com/Fla1337) | 15 | `+4,978 / -1,143` | Web 管理面板 · Docker / headless 部署 · waliapi-web 二进制 · 多阶段镜像构建 · Web 管理面板用户设置 |
 | 🔧 | **mw** | [@maowei0427](https://github.com/maowei0427) | 10 | `+1,228 / -244` | 日志响应内容记录 · Trace ID 追踪 · 详情页体验优化 · 知识库 embedding 批次配置 |
@@ -678,6 +678,17 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 
 ## 📌 版本历史
 
+### v0.3.5 (2026-09-21)
+
+#### 新增渠道
+
+- ✨ **新增 StepFun（阶跃星辰）渠道预设**：新增 OpenAI 兼容渠道类型 StepFun（`stepfun`，Base URL `https://api.stepfun.com/v1`），内置 5 条静态模型建议——step-5-preview / step-3.7-flash / step-3.5-flash / step-3.5-flash-2603 / step-1o-turbo-vision（旗舰在前，顺序即预填与连通性探测默认），预设仅声明 Chat Completions 端点与 Bearer 鉴权，模型建议可经「同步上游模型」拉取 `GET /v1/models` 覆盖；渠道导入导出的 v2 身份信任白名单、前后端图标与渠道类型定义同步接入（PR #127，@chyuan）
+
+#### 其他
+
+- 📝 **README 贡献者数据同步**：按当前仓库提交记录更新贡献者提交数与代码变更统计
+- 🔧 **版本号统一升级至 0.3.5**（package.json / Cargo.toml / tauri.conf.json / Cargo.lock）
+
 ### v0.3.4 (2026-09-20)
 
 #### Auth 账号
@@ -685,10 +696,6 @@ WaLiAPI 定位为**本地 / 内网优先**的 LLM 网关。公网部署前请先
 - ✨ **Grok OAuth 登录**：新增 Grok 渠道 OAuth 授权登录，支持 Token 自动刷新与协议感知模型发现，Auth 渠道页可直接登录 Grok 账号（PR #122，@GululuCopa）
 - ✨ **Antigravity OAuth（Gemini）登录**：新增 Antigravity 作为 Gemini 渠道的 OAuth 登录方式，Gemini 渠道支持 Antigravity 账号接入（PR #121，@GululuCopa）
 - 🐛 **Grok 与 Antigravity namespace 工具兼容**：兼容两者工具调用的 namespace 前缀，修复工具调用在协议转换中的匹配问题（@GululuCopa）
-
-#### 新增渠道
-
-- ✨ **新增 StepFun（阶跃星辰）渠道预设**：新增 OpenAI 兼容渠道类型 StepFun（`stepfun`，Base URL `https://api.stepfun.com/v1`），内置 5 条静态模型建议——step-5-preview / step-3.7-flash / step-3.5-flash / step-3.5-flash-2603 / step-1o-turbo-vision（旗舰在前，顺序即预填与连通性探测默认），预设仅声明 Chat Completions 端点与 Bearer 鉴权，模型建议可经「同步上游模型」拉取 `GET /v1/models` 覆盖；渠道导入导出的 v2 身份信任白名单、前后端图标与渠道类型定义同步接入
 
 #### 渠道管理
 

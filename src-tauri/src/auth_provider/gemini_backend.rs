@@ -705,6 +705,7 @@ mod tests {
             quota_json: None,
             model_states_json: "{\"version\":1,\"models\":[]}".into(),
             model_mapping_json: "{}".into(),
+            model_mapping_disabled: "[]".into(),
             attributes_json: json!({"email":"user@gmail.com","project_id": project}).to_string(),
             payload_json: json!({"access_token":"tok","refresh_token":"ref"}).to_string(),
             last_refreshed_at: None,

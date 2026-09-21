@@ -7,6 +7,7 @@ import { downloadTextFile, isWebRuntime } from "../lib/web";
 import { Plus, Radio, Trash2, Zap, Power, Edit, Download, ChevronDown, Upload, Loader2, X, Activity, Clock, GripVertical, Eye, EyeOff, Copy, Check, AlertCircle, Terminal } from "lucide-react";
 import { ChannelForm } from "../components/ChannelForm";
 import { ImportDialog } from "../components/ImportDialog";
+import { MappingChips } from "../components/MappingChips";
 import { ChannelTabs } from "../components/layout/ChannelTabs";
 import { writeClipboard } from "../lib/runtime";
 import { buildChannelCurl } from "../lib/curl";
@@ -472,44 +473,15 @@ export function ChannelsPage() {
                       </div>
                     </div>
 
-                    {/* 映射模型 */}
+                    {/* 映射模型（与 Auth 账号共用 MappingChips，样式/交互一致） */}
                     {ch.model_mapping && Object.keys(ch.model_mapping).length > 0 && (
                       <div>
                         <div className="mb-1.5 text-xs font-semibold text-slate-500">映射模型</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {Object.entries(ch.model_mapping).flatMap(([name, target]) => {
-                            const targets = Array.isArray(target) ? target : [target];
-                            return targets.map(t => {
-                              const isOff = (ch.model_mapping_disabled ?? []).some(d => d[0] === name && d[1] === t);
-                              return (
-                                <div
-                                  key={`${name}→${t}`}
-                                  className={`inline-flex items-center gap-1 rounded-full py-0 pl-1.5 pr-1 text-[11px] font-medium leading-5 transition-all ${
-                                    isOff ? "bg-slate-100 text-slate-400" : "bg-violet-50 text-violet-700"
-                                  }`}
-                                >
-                                  <button
-                                    onClick={() => handleCopyModel(name)}
-                                    className={`transition-all active:scale-95 ${isOff ? "line-through decoration-slate-300" : "hover:text-violet-900"}`}
-                                    title="点击复制映射名"
-                                  >
-                                    {name} → {t}
-                                    {copiedModel === name && <Check size={9} className="ml-0.5 inline text-emerald-500" />}
-                                  </button>
-                                  <button
-                                    onClick={() => handleToggleMapping(ch, name, t, isOff)}
-                                    className={`rounded-full p-0.5 transition-colors ${
-                                      isOff ? "text-slate-400 hover:bg-slate-200 hover:text-emerald-600" : "text-violet-400 hover:bg-violet-100 hover:text-red-500"
-                                    }`}
-                                    title={isOff ? "已关闭，点击开启" : "已开启，点击关闭"}
-                                  >
-                                    <Power size={10} />
-                                  </button>
-                                </div>
-                              );
-                            });
-                          })}
-                        </div>
+                        <MappingChips
+                          mapping={ch.model_mapping}
+                          disabledPairs={ch.model_mapping_disabled}
+                          onToggle={(name, t, isOff) => void handleToggleMapping(ch, name, t, isOff)}
+                        />
                       </div>
                     )}
 

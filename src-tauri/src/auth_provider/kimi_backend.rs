@@ -386,6 +386,7 @@ mod tests {
             quota_json: None,
             model_states_json: "{}".into(),
             model_mapping_json: "{}".into(),
+            model_mapping_disabled: "[]".into(),
             attributes_json: "{}".into(),
             payload_json: json!({"access_token":"tok","device_id":DEVICE_ID}).to_string(),
             last_refreshed_at: None,

@@ -285,6 +285,8 @@ export interface AuthAccount {
   models: AuthModelState[];
   quota: AuthQuotaState | null;
   model_mapping?: Record<string, string | string[]>;
+  /** 被关闭的映射对（迁移 042）：[from, to][]。空 = 全部开启。 */
+  model_mapping_disabled?: string[][];
   expires_at: string | null;
   hasRefreshToken: boolean;
   last_refreshed_at: string | null;
@@ -374,6 +376,7 @@ export interface AuthUpdateInput {
   priority: number;
   weight: number;
   model_mapping?: Record<string, string | string[]>;
+  model_mapping_disabled?: string[][];
 }
 
 export interface SecurityFinding {

@@ -4,11 +4,17 @@ import type { AuthAccount } from "../../types";
 import { MappingSection } from "../MappingSection";
 import type { ModelMapping } from "../../hooks/useModelMappings";
 
-export function EditModal({ account, pending, onClose, onSave }: { account: AuthAccount; pending: boolean; onClose: () => void; onSave: (input: Pick<AuthAccount, "id" | "label" | "priority" | "weight" | "model_mapping">) => Promise<void> }) {
+type EditInput = Pick<AuthAccount, "id" | "label" | "priority" | "weight" | "model_mapping"> & {
+  model_mapping_disabled?: string[][];
+};
+
+export function EditModal({ account, pending, onClose, onSave }: { account: AuthAccount; pending: boolean; onClose: () => void; onSave: (input: EditInput) => Promise<void> }) {
   const [label, setLabel] = useState(account.label);
   const [priority, setPriority] = useState(String(account.priority));
   const [weight, setWeight] = useState(String(account.weight));
   const [modelMapping, setModelMapping] = useState<ModelMapping>(account.model_mapping ?? {});
+  // 被关闭的映射对（迁移 042）：随编辑弹窗内行开关实时变化
+  const [mappingDisabled, setMappingDisabled] = useState<string[][]>(account.model_mapping_disabled ?? []);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,7 +32,27 @@ export function EditModal({ account, pending, onClose, onSave }: { account: Auth
     if (!Number.isInteger(nextWeight) || nextWeight < 1) return setError("权重必须是不小于 1 的整数");
 
     setError(null);
-    await onSave({ id: account.id, label: label.trim(), priority: nextPriority, weight: nextWeight, model_mapping: modelMapping });
+    // MappingSection 序列化时会剔除已关闭的映射对；这里把它们合并回
+    // model_mapping，保证之后重新开启时目标仍存在（disabled 列表单独存）。
+    const merged: ModelMapping = { ...modelMapping };
+    for (const [from, to] of mappingDisabled) {
+      if (!from || !to) continue;
+      const existing = merged[from];
+      if (existing === undefined) merged[from] = to;
+      else if (Array.isArray(existing)) {
+        if (!existing.includes(to)) merged[from] = [...existing, to];
+      } else if (existing !== to) merged[from] = [existing, to];
+    }
+    // 清理指向已删除映射名的残留 disabled 对
+    const nextDisabled = mappingDisabled.filter(([from]) => merged[from] !== undefined);
+    await onSave({
+      id: account.id,
+      label: label.trim(),
+      priority: nextPriority,
+      weight: nextWeight,
+      model_mapping: merged,
+      model_mapping_disabled: nextDisabled,
+    });
   };
 
   // Available target models = auth account's synced models
@@ -50,11 +76,13 @@ export function EditModal({ account, pending, onClose, onSave }: { account: Auth
           </div>
         </div>
 
-        {/* 模型映射 — 共享组件 */}
+        {/* 模型映射 — 共享组件（含每行开启/关闭开关，迁移 042） */}
         <MappingSection
           value={modelMapping}
+          disabledPairs={account.model_mapping_disabled ?? []}
           availableTargets={availableTargets}
           onChange={setModelMapping}
+          onDisabledChange={setMappingDisabled}
           hint="左侧填映射名，右侧选账号实际模型"
         />
 

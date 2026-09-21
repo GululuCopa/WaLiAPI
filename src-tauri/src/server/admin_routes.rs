@@ -635,6 +635,14 @@ async fn dispatch(shared: &SharedState, cmd: &str, args: Value) -> Result<Value,
         "auth_toggle" => to_json(
             commands::auth::auth_toggle(arg(&args, "id")?, arg(&args, "disabled")?, state).await,
         ),
+        "auth_update_mapping_disabled" => to_json(
+            commands::auth::auth_update_mapping_disabled(
+                arg(&args, "id")?,
+                arg(&args, "disabled")?,
+                state,
+            )
+            .await,
+        ),
         "auth_quota_status" => {
             to_json(commands::auth::auth_quota_status(arg(&args, "id")?, state).await)
         }

@@ -221,12 +221,12 @@ impl RouteCandidate {
     }
 
     /// Unified accessor: returns the candidate's `model_mapping` as a JSON Value.
-    /// Works for both channels and auth accounts.  Channels exclude disabled
-    /// mapping pairs (migration 041) so closed mappings never resolve upstream.
+    /// Works for both channels and auth accounts.  Both exclude disabled
+    /// mapping pairs (migrations 041/042) so closed mappings never resolve upstream.
     pub fn mapping_json(&self) -> Value {
         match self {
             Self::Channel { channel, .. } => channel.active_model_mapping(),
-            Self::AuthAccount(account) => account.model_mapping().unwrap_or_default(),
+            Self::AuthAccount(account) => account.active_model_mapping(),
         }
     }
 }
@@ -687,16 +687,6 @@ pub fn resolve_route_candidates(
     candidates
 }
 
-/// Check if a model name matches any source key in a mapping JSON.
-/// Used by both `channel_accepts_model` and `auth_account_accepts_model`.
-fn mapping_contains_source(mapping_json: &str, model: &str) -> bool {
-    let mapping: Value = serde_json::from_str(mapping_json).unwrap_or_default();
-    mapping
-        .as_object()
-        .map(|o| o.contains_key(model))
-        .unwrap_or(false)
-}
-
 fn channel_accepts_model(channel: &Channel, model: &str) -> bool {
     let models: Vec<String> = serde_json::from_str(&channel.models).unwrap_or_default();
     if models.is_empty() {
@@ -735,8 +725,12 @@ fn auth_account_accepts_model(account: &AuthAccount, model: &str) -> bool {
     if direct_hit {
         return true;
     }
-    // Mapping source names also count as hits (shared helper).
-    mapping_contains_source(&account.model_mapping_json, model)
+    // Mapping source names also count as hits (disabled pairs excluded, 042).
+    account
+        .active_model_mapping()
+        .as_object()
+        .map(|o| o.contains_key(model))
+        .unwrap_or(false)
 }
 
 /// The repository clears expired quota before returning route accounts.  This
@@ -843,7 +837,8 @@ pub fn resolve_auth_route_profile(
     }
 
     // Alias mapping: every target must resolve to an identical profile.
-    let mapping: Value = serde_json::from_str(&account.model_mapping_json).unwrap_or_default();
+    // Disabled pairs (042) are excluded — a fully-closed alias fails closed.
+    let mapping = account.active_model_mapping();
     let Some(targets) = mapping.get(requested_model) else {
         return None;
     };
@@ -1447,6 +1442,7 @@ mod tests {
             })
             .to_string(),
             model_mapping_json: "{}".into(),
+            model_mapping_disabled: "[]".into(),
             attributes_json: "{}".into(),
             payload_json:
                 "{\"access_token\":\"route-secret\",\"refresh_token\":\"refresh-secret\"}".into(),

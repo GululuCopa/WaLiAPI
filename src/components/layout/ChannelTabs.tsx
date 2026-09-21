@@ -21,7 +21,7 @@ export function ChannelTabs({ refreshKey = 0 }: { refreshKey?: number }) {
     "inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium transition-colors";
 
   return (
-    <nav className="flex w-full items-center gap-1 overflow-x-auto border-b border-border" aria-label="渠道视图切换">
+    <nav className="flex w-full items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-border" aria-label="渠道视图切换">
       <NavLink
         to="/channels"
         end

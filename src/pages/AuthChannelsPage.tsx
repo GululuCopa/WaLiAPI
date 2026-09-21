@@ -233,6 +233,7 @@ export function AuthChannelsPage() {
     onSync: () => setSyncAccount(account),
     onExport: () => void exportAuth(account),
     onRelogin: () => { setReloginAccount(account); setSelectedProvider(account.provider); setShowLogin(true); },
+    onToggleMapping: (name: string, target: string, currentlyOff: boolean) => void handleToggleMapping(account, name, target, currentlyOff),
   });
 
   const handleReorder = async (orderedIds: string[]) => {
@@ -246,6 +247,21 @@ export function AuthChannelsPage() {
     } catch (_) {
       setNotice({ kind: "error", message: "排序保存失败，已恢复原有顺序。" });
       await load(false);
+    }
+  };
+
+  // 映射对快捷开启/关闭（迁移 042）：乐观更新 + 即时保存，失败回滚
+  const handleToggleMapping = async (account: AuthAccount, name: string, target: string, currentlyOff: boolean) => {
+    const current = account.model_mapping_disabled ?? [];
+    const next = currentlyOff
+      ? current.filter((d) => !(d[0] === name && d[1] === target))
+      : [...current.filter((d) => !(d[0] === name && d[1] === target)), [name, target]];
+    setAccounts((prev) => prev.map((a) => (a.id === account.id ? { ...a, model_mapping_disabled: next } : a)));
+    try {
+      await authApi.updateMappingDisabled(account.id, next);
+    } catch (_) {
+      setAccounts((prev) => prev.map((a) => (a.id === account.id ? { ...a, model_mapping_disabled: current } : a)));
+      setNotice({ kind: "error", message: "切换映射状态失败，已恢复原状。" });
     }
   };
 
@@ -378,7 +394,7 @@ export function AuthChannelsPage() {
       </div>
     </div>
     <div className="flex gap-2 rounded-2xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-xs leading-5 text-destructive"><CircleAlert className="mt-0.5 shrink-0" size={16} /><p>⚠️ 风险提示：此提供商使用的订阅 / OAuth 会话未获官方授权用于代理 / 路由器使用。账户可能被限制或封禁。使用风险自负。</p></div>
-    {loading ? <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin" />加载 Auth 账号…</div> : visibleAccounts.length === 0 ? <EmptyAccountSlot provider={activeProvider} onLogin={() => { setReloginAccount(null); setShowLogin(true); }} onSelectImportFormat={(format) => void importAuth(format)} busy={pendingId === "import"} /> : viewMode === "list" ? <AccountList accounts={visibleAccounts} actionFor={actionFor} onReorder={handleReorder} /> : <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">{visibleAccounts.map(account => { const actions = actionFor(account); return <AccountCard key={account.id} account={account} pending={actions.pending} quotaPending={actions.quotaPending} onEdit={actions.onEdit} onToggle={actions.onToggle} onDelete={actions.onDelete} onRefresh={actions.onRefresh} onRefreshQuota={actions.onRefreshQuota} onSync={actions.onSync} onExport={actions.onExport} onRelogin={actions.onRelogin} />; })}</div>}
+    {loading ? <div className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 size={18} className="animate-spin" />加载 Auth 账号…</div> : visibleAccounts.length === 0 ? <EmptyAccountSlot provider={activeProvider} onLogin={() => { setReloginAccount(null); setShowLogin(true); }} onSelectImportFormat={(format) => void importAuth(format)} busy={pendingId === "import"} /> : viewMode === "list" ? <AccountList accounts={visibleAccounts} actionFor={actionFor} onReorder={handleReorder} /> : <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">{visibleAccounts.map(account => { const actions = actionFor(account); return <AccountCard key={account.id} account={account} pending={actions.pending} quotaPending={actions.quotaPending} onEdit={actions.onEdit} onToggle={actions.onToggle} onDelete={actions.onDelete} onRefresh={actions.onRefresh} onRefreshQuota={actions.onRefreshQuota} onSync={actions.onSync} onExport={actions.onExport} onRelogin={actions.onRelogin} onToggleMapping={actions.onToggleMapping} />; })}</div>}
     {showLogin && <LoginModal provider={activeProvider} replaceAccountId={reloginAccount?.id} onClose={() => { setShowLogin(false); setReloginAccount(null); }} onCompleted={completeLogin} />}
     {editAccount && <EditModal account={editAccount} pending={pendingId === editAccount.id} onClose={() => setEditAccount(null)} onSave={async input => { await runFor(input.id, "账号配置已保存。", () => authApi.update(input).then(() => undefined)); setEditAccount(null); }} />}
     {syncAccount && <ModelSyncModal account={syncAccount} onClose={() => setSyncAccount(null)} onSynced={() => { void load(false); setNotice({ kind: "success", message: "模型同步完成。" }); }} />}

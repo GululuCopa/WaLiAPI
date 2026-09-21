@@ -100,6 +100,9 @@ pub struct AuthAccountSummary {
     pub quota: Option<QuotaState>,
     pub models: ModelStates,
     pub model_mapping: serde_json::Value,
+    /// 被关闭的映射对（迁移 042）：`[[from, to], ...]`。原始列表（非过滤后），
+    /// 供前端渲染每条映射的开关状态。
+    pub model_mapping_disabled: serde_json::Value,
     pub attributes: Value,
     pub expires_at: Option<String>,
     pub has_refresh_token: bool,
@@ -126,6 +129,14 @@ impl AuthAccountSummary {
         let model_mapping = account
             .model_mapping()
             .map_err(|_| ProviderError::InvalidPayload)?;
+        let model_mapping_disabled: serde_json::Value = serde_json::from_str(
+            if account.model_mapping_disabled.is_empty() {
+                "[]"
+            } else {
+                &account.model_mapping_disabled
+            },
+        )
+        .unwrap_or(serde_json::Value::Array(Default::default()));
         Ok(Self {
             id: account.id.clone(),
             provider: account.provider.clone(),
@@ -138,6 +149,7 @@ impl AuthAccountSummary {
             quota,
             models,
             model_mapping,
+            model_mapping_disabled,
             attributes,
             expires_at: payload
                 .get("expires_at")

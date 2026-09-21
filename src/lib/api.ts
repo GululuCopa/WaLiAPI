@@ -151,6 +151,9 @@ export const authApi = {
   toggle: (id: string, disabled: boolean) => invoke<AuthAccount>("auth_toggle", { id, disabled }),
   quotaStatus: (id: string) => invoke<AuthQuotaStatus>("auth_quota_status", { id }),
   update: (input: AuthUpdateInput) => invoke<AuthAccount>("auth_update", { input }),
+  /** 映射对快捷开启/关闭：整体替换 model_mapping_disabled。 */
+  updateMappingDisabled: (id: string, disabled: string[][]) =>
+    invoke<AuthAccount>("auth_update_mapping_disabled", { id, disabled }),
   /** 手动拖拽排序：按传入顺序重写 sort_order。 */
   reorder: (orderedIds: string[]) => invoke<void>("auth_reorder_accounts", { orderedIds }),
 };

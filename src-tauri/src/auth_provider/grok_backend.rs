@@ -372,6 +372,7 @@ mod tests {
             quota_json: None,
             model_states_json: "{}".into(),
             model_mapping_json: "{}".into(),
+            model_mapping_disabled: "[]".into(),
             attributes_json: "{}".into(),
             payload_json: json!({
                 "provider": "grok",
