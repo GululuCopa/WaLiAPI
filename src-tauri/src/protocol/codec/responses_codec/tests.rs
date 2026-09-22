@@ -409,6 +409,60 @@ fn messages_request_thinking_survives_messages_to_responses() {
 }
 
 #[test]
+fn chat_sampling_fields_pass_through_or_drop_for_responses_backend() {
+    let (encoded, context) = encode_chat_to_responses(
+        &serde_json::json!({
+            "model": "m",
+            "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "parallel_tool_calls": false,
+            "stop": ["\n\n"],
+            "presence_penalty": 0.5,
+            "frequency_penalty": 0.1,
+            "seed": 7,
+            "user": "u1",
+            "n": 1
+        }),
+        "m",
+    )
+    .unwrap();
+
+    // 与 Messages→Responses 保持一致的字段原样透传。
+    assert_eq!(encoded["temperature"], 0.2);
+    assert_eq!(encoded["top_p"], 0.9);
+    assert_eq!(encoded["parallel_tool_calls"], false);
+    assert_eq!(encoded["stop"][0], "\n\n");
+    // 无 Responses 等价物的客户端默认参数丢弃并留痕，不再让整段请求 400。
+    for dropped in ["presence_penalty", "frequency_penalty", "seed", "user"] {
+        assert!(encoded.get(dropped).is_none(), "{dropped} must be dropped");
+        assert!(context.normalized.contains(&format!("/{dropped}")));
+    }
+    // `n: 1` 是默认值，静默放行；n > 1 见下一个用例。
+    assert!(context.normalized.contains(&"/n".to_string()));
+}
+
+#[test]
+fn chat_n_greater_than_one_is_rejected() {
+    let error = encode_chat_to_responses(
+        &serde_json::json!({"model": "m", "messages": [], "n": 2}),
+        "m",
+    )
+    .unwrap_err();
+    assert!(error.json_pointers.contains(&"/n".to_string()));
+}
+
+#[test]
+fn chat_sampling_field_types_are_validated() {
+    let error = encode_chat_to_responses(
+        &serde_json::json!({"model": "m", "messages": [], "temperature": "hot"}),
+        "m",
+    )
+    .unwrap_err();
+    assert!(error.json_pointers.contains(&"/temperature".to_string()));
+}
+
+#[test]
 fn chat_gpt5_options_map_or_drop_for_responses_backend() {
     let (encoded, context) = encode_chat_to_responses(
         &serde_json::json!({

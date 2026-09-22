@@ -37,6 +37,8 @@ const CLIENT_METADATA: &str =
 
 pub struct GeminiProvider {
     client: reqwest::Client,
+    /// 流式出站客户端（无总超时），见 [`super::streaming_http_client`]。
+    stream_client: reqwest::Client,
     code_assist_base: String,
     userinfo_url: String,
     login: GeminiLogin,
@@ -54,6 +56,7 @@ impl GeminiProvider {
     pub fn new() -> Self {
         Self {
             client: http_client(),
+            stream_client: super::streaming_http_client(),
             code_assist_base: GEMINI_CODE_ASSIST_BASE.to_owned(),
             userinfo_url: GEMINI_USERINFO_URL.to_owned(),
             login: GeminiLogin::new(),
@@ -69,6 +72,7 @@ impl GeminiProvider {
     ) -> Self {
         Self {
             client: http_client(),
+            stream_client: super::streaming_http_client(),
             code_assist_base: code_assist_base.into().trim_end_matches('/').to_owned(),
             userinfo_url: userinfo_url.into(),
             login,
@@ -531,7 +535,12 @@ impl Provider for GeminiProvider {
                 }
             }
         }
-        self.client
+        let client = if request.is_stream {
+            &self.stream_client
+        } else {
+            &self.client
+        };
+        client
             .post(url)
             .headers(headers)
             .json(&wrapped)

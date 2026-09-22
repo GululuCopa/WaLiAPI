@@ -16,6 +16,30 @@ const CHAT_TOP_LEVEL: &[&str] = &[
     "verbosity",
     "metadata",
     "store",
+    "temperature",
+    "top_p",
+    "stop",
+    "parallel_tool_calls",
+    "n",
+];
+
+/// 有 Responses 等价字段：原样透传（与 Messages→Responses 的映射保持一致）。
+const CHAT_PASSTHROUGH_FIELDS: &[&str] = &["temperature", "top_p", "stop", "parallel_tool_calls"];
+
+/// 无 Responses 等价物、且丢弃不会改变本次答复语义的 Chat 字段。
+///
+/// 这些是 Chat Completions 特有的采样 / 计费旋钮，透传会被上游以 400 拒掉，
+/// 而让整段请求失败不划算：opencode、Cline、ChatBox 等客户端默认就会带
+/// `temperature` / `presence_penalty` 之类的参数。丢弃会记入 `normalized`
+/// 审计上下文，不静默吞掉。`n` 例外：`n > 1` 会真正减少下游拿到的候选数，
+/// 因此单独 fail-closed（见字段校验）。
+const CHAT_DROPPED_FIELDS: &[&str] = &[
+    "presence_penalty",
+    "frequency_penalty",
+    "seed",
+    "user",
+    "logit_bias",
+    "service_tier",
 ];
 
 /// Encode a Chat Completions request as a Responses request.  This deliberately
@@ -35,7 +59,9 @@ pub fn encode_chat_to_responses(
     let mut rejected = Vec::new();
     let mut normalized = Vec::new();
     for (key, value) in object {
-        if !CHAT_TOP_LEVEL.contains(&key.as_str()) {
+        if CHAT_DROPPED_FIELDS.contains(&key.as_str()) {
+            normalized.push(format!("/{key}"));
+        } else if !CHAT_TOP_LEVEL.contains(&key.as_str()) {
             request::reject(
                 &mut rejected,
                 if key == "response_format" {
@@ -66,6 +92,40 @@ pub fn encode_chat_to_responses(
                 FeatureKind::UnsupportedField,
                 "/store",
                 "store must be false when converting Chat to Responses",
+            );
+        } else if matches!(key.as_str(), "temperature" | "top_p") && !value.is_number() {
+            request::reject(
+                &mut rejected,
+                FeatureKind::UnsupportedField,
+                format!("/{key}"),
+                format!("Chat {key} must be a number"),
+            );
+        } else if key == "parallel_tool_calls" && !value.is_boolean() {
+            request::reject(
+                &mut rejected,
+                FeatureKind::UnsupportedField,
+                "/parallel_tool_calls",
+                "Chat parallel_tool_calls must be a boolean",
+            );
+        } else if key == "n" {
+            if value.as_u64().unwrap_or(1) > 1 {
+                // n > 1 会改变下游拿到的候选数量，不做静默降级。
+                request::reject(
+                    &mut rejected,
+                    FeatureKind::UnsupportedField,
+                    "/n",
+                    "Chat n > 1 has no Responses backend representation",
+                );
+            } else {
+                // n == 1 与默认同义：不透传，但留下审计痕迹。
+                normalized.push("/n".to_owned());
+            }
+        } else if key == "stop" && !(value.is_string() || value.is_array()) {
+            request::reject(
+                &mut rejected,
+                FeatureKind::UnsupportedField,
+                "/stop",
+                "Chat stop must be a string or an array of strings",
             );
         }
     }
@@ -158,6 +218,11 @@ pub fn encode_chat_to_responses(
         // does not accept the public Responses metadata field, so keep the
         // request usable by dropping it with an audit entry.
         normalized.push("/metadata".to_owned());
+    }
+    for field in CHAT_PASSTHROUGH_FIELDS {
+        if let Some(value) = object.get(*field) {
+            response.insert((*field).to_owned(), value.clone());
+        }
     }
     if !instruction_parts.is_empty() {
         response.insert(

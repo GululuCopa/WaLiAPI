@@ -28,6 +28,7 @@
 
 pub mod driver;
 pub mod estimate_usage;
+pub mod grok_arguments;
 pub mod sse;
 
 #[cfg(test)]
@@ -201,6 +202,8 @@ pub async fn dispatch_auth_account_executor(
                 })
             }
         };
+        let mut body = body;
+        normalize_grok_tool_arguments(attempt, &mut body);
         if let Some(failure) = semantic_failure(&attempt.upstream_protocol, &body) {
             return AttemptResult::Failure(failure);
         }
@@ -248,10 +251,11 @@ pub async fn dispatch_auth_account_executor(
     if let Err(error) = accumulator.push(&bytes) {
         return AttemptResult::Failure(responses_protocol_failure(error.message));
     }
-    let body = match accumulator.finish() {
+    let mut body = match accumulator.finish() {
         Ok(body) => body,
         Err(error) => return AttemptResult::Failure(responses_protocol_failure(error.message)),
     };
+    normalize_grok_tool_arguments(attempt, &mut body);
     if let Some(failure) = semantic_failure(&attempt.upstream_protocol, &body) {
         return AttemptResult::Failure(failure);
     }
@@ -322,14 +326,29 @@ pub async fn dispatch_auth_account_stream_executor(
         .unwrap_or("text/event-stream")
         .to_owned();
     let headers = safe_response_headers(response.headers());
+    let body = response
+        .bytes_stream()
+        .map(|result| result.map_err(std::io::Error::other))
+        .boxed();
+    // Grok 会把整数参数写成浮点（`4000.0`），Codex 按 schema 反序列化整数会直接
+    // 失败；在上游字节流层规范化，下游无论什么协议都受益。
+    let body = if grok_arguments::needs_normalization(attempt.auth_provider.as_deref()) {
+        grok_arguments::rewrite_stream(body)
+    } else {
+        body
+    };
     StreamAttemptResult::Connected(UpstreamStream {
         content_type,
         headers,
-        body: response
-            .bytes_stream()
-            .map(|result| result.map_err(std::io::Error::other))
-            .boxed(),
+        body,
     })
+}
+
+/// Grok 专用：把响应里工具参数的整数值浮点规范成整数。其它 provider 不动。
+fn normalize_grok_tool_arguments(attempt: &PreparedAttempt, body: &mut Value) {
+    if grok_arguments::needs_normalization(attempt.auth_provider.as_deref()) {
+        grok_arguments::rewrite_response_body(body);
+    }
 }
 
 fn force_responses_stream(body: &Value) -> Value {

@@ -32,6 +32,43 @@ use crate::db::models::{AuthAccount, ModelState, QuotaState};
 const RESPONSES_PATH: &str = "responses";
 const MODELS_PATH: &str = "models";
 
+/// Grok cli-chat-proxy 接受的 `tools[].type` 白名单。
+///
+/// 来源：上游对未知类型的 422 反序列化错误
+/// （`unknown variant \`…\`, expected one of \`function\`, \`web_search\`, …`）。
+/// 白名单之外的声明（Codex 的 `namespace` / `custom` / `local_shell`、
+/// OpenAI 的 `web_search_preview` 等）会让整个请求失败，必须先移除。
+const GROK_TOOL_TYPES: &[&str] = &[
+    "function",
+    "web_search",
+    "x_search",
+    "image_generation",
+    "collections_search",
+    "file_search",
+    "code_execution",
+    "code_interpreter",
+    "mcp",
+    "shell",
+    "tool_search",
+];
+
+/// `web_search` 工具内 Grok 上游不接受的字段。
+///
+/// 实测上游对未知参数返回 400 `Argument not supported: <field>`；
+/// `filters` / `user_location` / `indexed_web_access` / `search_content_types`
+/// 等字段上游接受，保持原样。
+const GROK_UNSUPPORTED_WEB_SEARCH_FIELDS: &[&str] = &["external_web_access", "search_context_size"];
+
+/// Grok 的 reasoning `encrypted_content` 在后续请求里会被上游拒绝。
+///
+/// 实测：Codex CLI 多轮会话把上一轮的 reasoning `encrypted_content` 原样回传时，
+/// 上游返回 400 `Could not decode the compaction blob. Ensure it is unmodified
+/// from the compact response.`（同一个 blob 生成后立即回放可以成功，落到真实
+/// 会话就失败，说明上游解码依赖短时服务端状态，不能当作可回放上下文）。
+/// 因此 Grok 出站不再请求也不转发该字段：只丢弃加密 blob，明文 `summary`
+/// 照常保留，模型每轮重新推理。
+const GROK_ENCRYPTED_REASONING_INCLUDE: &str = "reasoning.encrypted_content";
+
 fn safe_headers() -> Vec<HeaderName> {
     vec![
         HeaderName::from_static("x-request-id"),
@@ -42,6 +79,8 @@ fn safe_headers() -> Vec<HeaderName> {
 
 pub struct GrokProvider {
     client: reqwest::Client,
+    /// 流式出站客户端（无总超时），见 [`super::streaming_http_client`]。
+    stream_client: reqwest::Client,
     api_base: String,
     login: GrokLogin,
 }
@@ -59,6 +98,24 @@ impl GrokProvider {
 
     pub fn with_api_base(api_base: impl Into<String>) -> Self {
         Self::with_endpoints(api_base, String::new(), String::new())
+    }
+
+    /// 测试专用：把非流式客户端的总超时调到极短，用于验证流式/非流式
+    /// 客户端的选择（上游慢响应时，流式必须不受该总超时影响）。
+    #[cfg(test)]
+    fn with_api_base_and_blocking_timeout(
+        api_base: impl Into<String>,
+        timeout: std::time::Duration,
+    ) -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(timeout)
+                .build()
+                .expect("grok test blocking client"),
+            stream_client: super::streaming_http_client(),
+            api_base: api_base.into().trim_end_matches('/').to_owned(),
+            login: GrokLogin::new(),
+        }
     }
 
     /// Test constructor that overrides the chat-proxy and OAuth endpoints so
@@ -80,6 +137,7 @@ impl GrokProvider {
                 .timeout(GROK_HTTP_TIMEOUT)
                 .build()
                 .expect("grok provider http client"),
+            stream_client: super::streaming_http_client(),
             api_base: api_base.into().trim_end_matches('/').to_owned(),
             login,
         }
@@ -98,55 +156,114 @@ impl GrokProvider {
             .ok_or(ProviderError::InvalidPayload)
     }
 
-    /// 清理 Grok Responses 不接受的 namespace 工具声明。
+    /// 清理 Grok Responses 不接受的工具声明与工具字段。
     ///
-    /// grok-build 内部把 namespace 作为工具分组元数据使用，但它不是
-    /// Grok Responses `tools[].type` 的 wire-level 变体。这里仅移除该
-    /// marker，不猜测转换成 mcp/function，也不影响其他 provider。
+    /// cli-chat-proxy 对 `tools[].type` 有固定白名单（`function` / `web_search` /
+    /// `x_search` / …，见 [`GROK_TOOL_TYPES`]），白名单之外的声明会让整个请求
+    /// 以 422 `unknown variant` 失败；`web_search` 工具内还有若干上游不认的参数
+    /// （见 [`GROK_UNSUPPORTED_WEB_SEARCH_FIELDS`]），会以 400
+    /// `Argument not supported` 失败。这里只做删除，不猜测转换成其他工具类型，
+    /// 也不影响其他 provider。
+    ///
+    /// 下游客户端（Codex CLI 的 `namespace` / `custom` / `web_search`、
+    /// Anthropic 内置工具等）因此不会把整段请求打挂，代价是这些工具对模型不可见。
     fn normalize_responses_body(body: &Value) -> Value {
-        let Some(tools) = body.get("tools").and_then(Value::as_array) else {
+        let Some(object) = body.as_object() else {
             return body.clone();
         };
+        let mut normalized = object.clone();
+        let mut removed_tools: Vec<String> = Vec::new();
+        let mut stripped_fields = 0usize;
 
-        let mut normalized = body.clone();
-        let Some(object) = normalized.as_object_mut() else {
-            return body.clone();
-        };
-
-        let original_len = tools.len();
-        let filtered_tools: Vec<Value> = tools
-            .iter()
-            .filter(|tool| tool.get("type").and_then(Value::as_str) != Some("namespace"))
-            .cloned()
-            .collect();
-        let removed_count = original_len.saturating_sub(filtered_tools.len());
-
-        let tool_choice_is_namespace = object
-            .get("tool_choice")
-            .and_then(Value::as_object)
-            .and_then(|choice| choice.get("type"))
-            .and_then(Value::as_str)
-            == Some("namespace");
-
-        if removed_count == 0 && !tool_choice_is_namespace {
-            return body.clone();
+        // include：不再向上游请求 encrypted reasoning blob（拿到了也不可回放）。
+        if let Some(include) = normalized.get_mut("include").and_then(Value::as_array_mut) {
+            let before = include.len();
+            include.retain(|value| value.as_str() != Some(GROK_ENCRYPTED_REASONING_INCLUDE));
+            stripped_fields += before.saturating_sub(include.len());
+        }
+        if normalized
+            .get("include")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+        {
+            normalized.remove("include");
         }
 
-        if filtered_tools.is_empty() {
-            object.remove("tools");
-            object.remove("tool_choice");
-        } else {
-            object.insert("tools".to_owned(), Value::Array(filtered_tools));
-            if tool_choice_is_namespace {
-                object.remove("tool_choice");
+        // input：历史 reasoning 条目去掉加密 blob；上游要求 content 为数组。
+        if let Some(items) = normalized.get_mut("input").and_then(Value::as_array_mut) {
+            for item in items.iter_mut() {
+                if item.get("type").and_then(Value::as_str) != Some("reasoning") {
+                    continue;
+                }
+                let Some(object) = item.as_object_mut() else {
+                    continue;
+                };
+                if object.remove("encrypted_content").is_some() {
+                    stripped_fields += 1;
+                }
+                if object.get("content").is_some_and(Value::is_null) {
+                    object.insert("content".to_owned(), Value::Array(Vec::new()));
+                }
             }
         }
 
+        if let Some(tools) = object.get("tools").and_then(Value::as_array) {
+            let mut kept = Vec::with_capacity(tools.len());
+            for tool in tools {
+                if !tool_type_is_supported(tool) {
+                    removed_tools.push(tool_marker(tool));
+                    continue;
+                }
+                let (tool, stripped) = strip_unsupported_web_search_fields(tool);
+                stripped_fields += stripped;
+                kept.push(tool);
+            }
+            if kept.is_empty() {
+                normalized.remove("tools");
+            } else {
+                normalized.insert("tools".to_owned(), Value::Array(kept));
+            }
+        }
+
+        // tool_choice 只在有实际工具、且指向仍然存在的工具时保留：上游对
+        // “有 tool_choice 但没有 tools”与悬空引用都直接 400。
+        let has_tools = normalized
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| !tools.is_empty());
+        let kept_tool_names: Vec<String> = normalized
+            .get("tools")
+            .and_then(Value::as_array)
+            .map(|tools| {
+                tools
+                    .iter()
+                    .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let removed_choice = match normalized.get("tool_choice").cloned() {
+            Some(choice) if !has_tools || !tool_choice_is_supported(&choice, &kept_tool_names) => {
+                normalized.remove("tool_choice");
+                true
+            }
+            _ => false,
+        };
+
+        // 用内容比较而不是计数器作为“是否真的改过”的判据：`content: null → []`
+        // 与空 `include` 移除都不计入 stripped_fields，只看计数器会把
+        // “唯一变化就是它们”的请求原样送出去，上游仍会 422。
+        if normalized == *object {
+            return body.clone();
+        }
+
         tracing::debug!(
-            removed_namespace_tools = removed_count,
-            "normalized unsupported namespace tools for Grok Responses"
+            removed_tools = removed_tools.len(),
+            removed_tool_choice = removed_choice,
+            stripped_fields = stripped_fields,
+            "normalized Grok Responses request to the upstream allow-list"
         );
-        normalized
+        Value::Object(normalized)
     }
 
     fn identity_headers(access_token: &str, is_stream: bool) -> Result<HeaderMap, ProviderError> {
@@ -245,7 +362,12 @@ impl Provider for GrokProvider {
         let mut headers = Self::identity_headers(&access_token, request.is_stream)?;
         Self::merge_safe_headers(&mut headers, request.headers);
         let body = Self::normalize_responses_body(request.body);
-        self.client
+        let client = if request.is_stream {
+            &self.stream_client
+        } else {
+            &self.client
+        };
+        client
             .post(format!("{}/{RESPONSES_PATH}", self.api_base))
             .headers(headers)
             .json(&body)
@@ -286,6 +408,64 @@ impl Provider for GrokProvider {
     ) -> Result<Option<QuotaState>, ProviderError> {
         Ok(None)
     }
+}
+
+/// Grok 上游只接受白名单内的 `tools[].type`；未知类型会以 422 让整段请求失败。
+fn tool_type_is_supported(tool: &Value) -> bool {
+    tool.get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| GROK_TOOL_TYPES.contains(&kind))
+}
+
+/// 被移除工具的日志标记（优先名字，其次类型）。
+fn tool_marker(tool: &Value) -> String {
+    tool.get("name")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| tool.get("type").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_else(|| "<unnamed>".to_owned())
+}
+
+/// 删除 `web_search` 工具上游不认的字段，返回（工具, 删除字段数）。
+fn strip_unsupported_web_search_fields(tool: &Value) -> (Value, usize) {
+    if tool.get("type").and_then(Value::as_str) != Some("web_search") {
+        return (tool.clone(), 0);
+    }
+    let Some(object) = tool.as_object() else {
+        return (tool.clone(), 0);
+    };
+    let mut stripped = object.clone();
+    let removed = GROK_UNSUPPORTED_WEB_SEARCH_FIELDS
+        .iter()
+        .filter(|field| stripped.remove(**field).is_some())
+        .count();
+    (Value::Object(stripped), removed)
+}
+
+/// `tool_choice` 是否仍可发送。
+///
+/// 字符串形态只认 Responses 的三个合法值；对象形态要求类型在工具白名单内，
+/// 且 `function` 指向的工具在归一化后仍然存在（悬空引用会被上游 400）。
+fn tool_choice_is_supported(choice: &Value, kept_tool_names: &[String]) -> bool {
+    if let Some(kind) = choice.as_str() {
+        return matches!(kind, "auto" | "none" | "required");
+    }
+    let Some(object) = choice.as_object() else {
+        return false;
+    };
+    let Some(kind) = object.get("type").and_then(Value::as_str) else {
+        return false;
+    };
+    if !GROK_TOOL_TYPES.contains(&kind) {
+        return false;
+    }
+    if kind != "function" {
+        return true;
+    }
+    let Some(name) = object.get("name").and_then(Value::as_str) else {
+        return false;
+    };
+    kept_tool_names.iter().any(|kept| kept == name)
 }
 
 /// Normalize the `/models` snapshot.  Missing or empty ids are skipped; a
@@ -561,6 +741,254 @@ mod tests {
         });
 
         assert_eq!(GrokProvider::normalize_responses_body(&body), body);
+    }
+
+    /// 慢上游回归：`Client::timeout` 是覆盖响应体读取的总超时，用它跑 SSE 会在固定
+    /// 秒数处切断长流（下游表现为 `stream interrupted ... operation timed out`）。
+    /// 流式出站必须走无总超时的客户端。
+    #[tokio::test]
+    async fn streaming_outbound_ignores_blocking_total_timeout() {
+        let app = Router::new().route(
+            "/v1/responses",
+            post(|_: axum::body::Bytes| async {
+                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                (
+                    axum::http::StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    "data: {\"type\":\"response.completed\"}\n\n",
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let provider = GrokProvider::with_api_base_and_blocking_timeout(
+            format!("http://{addr}/v1"),
+            std::time::Duration::from_millis(200),
+        );
+        let caller = HeaderMap::new();
+
+        assert!(
+            provider
+                .outbound(req(
+                    &account(),
+                    &payload(),
+                    &json!({}),
+                    "responses",
+                    "responses",
+                    true,
+                    &caller
+                ))
+                .await
+                .is_ok(),
+            "流式请求不应被 200ms 的非流式总超时切断"
+        );
+        assert!(
+            provider
+                .outbound(req(
+                    &account(),
+                    &payload(),
+                    &json!({}),
+                    "responses",
+                    "responses",
+                    false,
+                    &caller
+                ))
+                .await
+                .is_err(),
+            "非流式请求应受总超时约束"
+        );
+    }
+
+    #[test]
+    fn normalize_responses_body_drops_encrypted_reasoning_blobs() {
+        // Codex 多轮回放 encrypted_content 时上游 400；同时上游要求 content 是数组。
+        let body = json!({
+            "model": "grok-4",
+            "include": ["reasoning.encrypted_content"],
+            "input": [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [{"type": "summary_text", "text": "think"}],
+                    "content": null,
+                    "encrypted_content": "ZmFrZS1ibG9i"
+                },
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}
+            ]
+        });
+
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert!(normalized.get("include").is_none());
+        let reasoning = &normalized["input"][0];
+        assert!(reasoning.get("encrypted_content").is_none());
+        assert_eq!(reasoning["content"], json!([]));
+        assert_eq!(reasoning["summary"][0]["text"], "think");
+        assert_eq!(normalized["input"][1]["type"], "message");
+    }
+
+    #[test]
+    fn normalize_responses_body_keeps_other_include_entries() {
+        let body = json!({
+            "model": "grok-4",
+            "include": ["reasoning.encrypted_content", "message.output_text.logprobs"],
+            "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}]
+        });
+
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert_eq!(
+            normalized["include"],
+            json!(["message.output_text.logprobs"])
+        );
+    }
+
+    #[tokio::test]
+    async fn responses_profile_strips_encrypted_reasoning_before_http() {
+        let (provider, state) = mock_provider().await;
+        let body = json!({
+            "model": "grok-4",
+            "include": ["reasoning.encrypted_content"],
+            "input": [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [],
+                    "content": null,
+                    "encrypted_content": "ZmFrZS1ibG9i"
+                },
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}
+            ]
+        });
+
+        provider
+            .outbound(req(
+                &account(),
+                &payload(),
+                &body,
+                "responses",
+                "responses",
+                false,
+                &HeaderMap::new(),
+            ))
+            .await
+            .unwrap();
+
+        let bodies = state.bodies.lock().unwrap();
+        let sent = &bodies[0];
+        assert!(sent.get("include").is_none());
+        assert!(sent["input"][0].get("encrypted_content").is_none());
+        assert_eq!(sent["input"][0]["content"], json!([]));
+    }
+
+    #[test]
+    fn normalize_responses_body_strips_unsupported_web_search_fields() {
+        let body = json!({
+            "model": "grok-4",
+            "tools": [{
+                "type": "web_search",
+                "external_web_access": false,
+                "search_context_size": "medium",
+                "filters": {"allowed_domains": ["example.com"]},
+                "user_location": {"type": "approximate", "country": "US"}
+            }],
+            "tool_choice": "auto"
+        });
+
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        let tool = &normalized["tools"][0];
+        assert!(tool.get("external_web_access").is_none());
+        assert!(tool.get("search_context_size").is_none());
+        assert_eq!(tool["filters"]["allowed_domains"][0], "example.com");
+        assert_eq!(tool["user_location"]["country"], "US");
+        assert_eq!(normalized["tool_choice"], "auto");
+    }
+
+    #[test]
+    fn normalize_responses_body_drops_upstream_unknown_tool_types() {
+        // dry-run：Codex 的 custom/local_shell 与 OpenAI 的 web_search_preview 都
+        // 不在 cli-chat-proxy 白名单内，必须移除；shell/tool_search 保留。
+        let body = json!({
+            "model": "grok-4",
+            "tools": [
+                {"type": "custom", "name": "apply_patch", "format": {"type": "grammar"}},
+                {"type": "local_shell"},
+                {"type": "web_search_preview"},
+                {"type": "shell"},
+                {"type": "tool_search"}
+            ]
+        });
+
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        let tools = normalized["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["type"], "shell");
+        assert_eq!(tools[1]["type"], "tool_search");
+    }
+
+    #[test]
+    fn normalize_responses_body_removes_dangling_tool_choice() {
+        // 上游对“有 tool_choice 但没有 tools”返回 400，必须一起清理。
+        let body = json!({"model": "grok-4", "tool_choice": "auto"});
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert!(normalized.get("tool_choice").is_none());
+
+        // function tool_choice 不能指向已被移除的工具。
+        let body = json!({
+            "model": "grok-4",
+            "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object"}}],
+            "tool_choice": {"type": "function", "name": "apply_patch"}
+        });
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert!(normalized.get("tool_choice").is_none());
+
+        // 仍存在的 function 工具引用保持原样。
+        let body = json!({
+            "model": "grok-4",
+            "tools": [{"type": "function", "name": "read_file", "parameters": {"type": "object"}}],
+            "tool_choice": {"type": "function", "name": "read_file"}
+        });
+        let normalized = GrokProvider::normalize_responses_body(&body);
+        assert_eq!(normalized["tool_choice"]["name"], "read_file");
+    }
+
+    #[tokio::test]
+    async fn responses_profile_normalizes_codex_cli_toolset_before_http() {
+        let (provider, state) = mock_provider().await;
+        let body = json!({
+            "model": "grok-4",
+            "tools": [
+                {"type": "function", "name": "exec_command", "parameters": {"type": "object"}},
+                {
+                    "type": "namespace",
+                    "name": "multi_agent_v1",
+                    "tools": [{"type": "function", "name": "close_agent"}]
+                },
+                {"type": "web_search", "external_web_access": false}
+            ],
+            "tool_choice": "auto"
+        });
+
+        provider
+            .outbound(req(
+                &account(),
+                &payload(),
+                &body,
+                "responses",
+                "responses",
+                false,
+                &HeaderMap::new(),
+            ))
+            .await
+            .unwrap();
+
+        let bodies = state.bodies.lock().unwrap();
+        let sent = &bodies[0];
+        let tools = sent["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["name"], "exec_command");
+        assert_eq!(tools[1]["type"], "web_search");
+        assert!(tools[1].get("external_web_access").is_none());
+        assert_eq!(sent["tool_choice"], "auto");
     }
 
     #[tokio::test]
