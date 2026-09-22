@@ -79,6 +79,8 @@ fn safe_headers() -> Vec<HeaderName> {
 
 pub struct GrokProvider {
     client: reqwest::Client,
+    /// 流式出站客户端（无总超时），见 [`super::streaming_http_client`]。
+    stream_client: reqwest::Client,
     api_base: String,
     login: GrokLogin,
 }
@@ -96,6 +98,24 @@ impl GrokProvider {
 
     pub fn with_api_base(api_base: impl Into<String>) -> Self {
         Self::with_endpoints(api_base, String::new(), String::new())
+    }
+
+    /// 测试专用：把非流式客户端的总超时调到极短，用于验证流式/非流式
+    /// 客户端的选择（上游慢响应时，流式必须不受该总超时影响）。
+    #[cfg(test)]
+    fn with_api_base_and_blocking_timeout(
+        api_base: impl Into<String>,
+        timeout: std::time::Duration,
+    ) -> Self {
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(timeout)
+                .build()
+                .expect("grok test blocking client"),
+            stream_client: super::streaming_http_client(),
+            api_base: api_base.into().trim_end_matches('/').to_owned(),
+            login: GrokLogin::new(),
+        }
     }
 
     /// Test constructor that overrides the chat-proxy and OAuth endpoints so
@@ -117,6 +137,7 @@ impl GrokProvider {
                 .timeout(GROK_HTTP_TIMEOUT)
                 .build()
                 .expect("grok provider http client"),
+            stream_client: super::streaming_http_client(),
             api_base: api_base.into().trim_end_matches('/').to_owned(),
             login,
         }
@@ -341,7 +362,12 @@ impl Provider for GrokProvider {
         let mut headers = Self::identity_headers(&access_token, request.is_stream)?;
         Self::merge_safe_headers(&mut headers, request.headers);
         let body = Self::normalize_responses_body(request.body);
-        self.client
+        let client = if request.is_stream {
+            &self.stream_client
+        } else {
+            &self.client
+        };
+        client
             .post(format!("{}/{RESPONSES_PATH}", self.api_base))
             .headers(headers)
             .json(&body)
@@ -715,6 +741,63 @@ mod tests {
         });
 
         assert_eq!(GrokProvider::normalize_responses_body(&body), body);
+    }
+
+    /// 慢上游回归：`Client::timeout` 是覆盖响应体读取的总超时，用它跑 SSE 会在固定
+    /// 秒数处切断长流（下游表现为 `stream interrupted ... operation timed out`）。
+    /// 流式出站必须走无总超时的客户端。
+    #[tokio::test]
+    async fn streaming_outbound_ignores_blocking_total_timeout() {
+        let app = Router::new().route(
+            "/v1/responses",
+            post(|_: axum::body::Bytes| async {
+                tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                (
+                    axum::http::StatusCode::OK,
+                    [("content-type", "text/event-stream")],
+                    "data: {\"type\":\"response.completed\"}\n\n",
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let provider = GrokProvider::with_api_base_and_blocking_timeout(
+            format!("http://{addr}/v1"),
+            std::time::Duration::from_millis(200),
+        );
+        let caller = HeaderMap::new();
+
+        assert!(
+            provider
+                .outbound(req(
+                    &account(),
+                    &payload(),
+                    &json!({}),
+                    "responses",
+                    "responses",
+                    true,
+                    &caller
+                ))
+                .await
+                .is_ok(),
+            "流式请求不应被 200ms 的非流式总超时切断"
+        );
+        assert!(
+            provider
+                .outbound(req(
+                    &account(),
+                    &payload(),
+                    &json!({}),
+                    "responses",
+                    "responses",
+                    false,
+                    &caller
+                ))
+                .await
+                .is_err(),
+            "非流式请求应受总超时约束"
+        );
     }
 
     #[test]

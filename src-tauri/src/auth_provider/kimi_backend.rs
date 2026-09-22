@@ -48,6 +48,8 @@ fn safe_headers() -> Vec<HeaderName> {
 
 pub struct KimiProvider {
     client: reqwest::Client,
+    /// 流式出站客户端（无总超时），见 [`super::streaming_http_client`]。
+    stream_client: reqwest::Client,
     coding_base: String,
     login: KimiLogin,
 }
@@ -87,6 +89,7 @@ impl KimiProvider {
                 .timeout(KIMI_HTTP_TIMEOUT)
                 .build()
                 .expect("kimi provider http client"),
+            stream_client: super::streaming_http_client(),
             coding_base: coding_base.into(),
             login,
         }
@@ -234,7 +237,12 @@ impl Provider for KimiProvider {
         let mut combined = built.headers().clone();
         Self::merge_safe_headers(&mut combined, request.headers);
 
-        self.client
+        let client = if request.is_stream {
+            &self.stream_client
+        } else {
+            &self.client
+        };
+        client
             .post(url)
             .headers(combined)
             .json(request.body)
