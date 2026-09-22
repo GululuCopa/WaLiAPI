@@ -915,6 +915,7 @@ fn write_openclaw(
     // `{baseUrl, apiKey, model}` 既不在正确路径也不在正确结构里，读不到。
     let provider_id = "waliapi";
     let model_ref = format!("{provider_id}/{model}");
+    let provider_prefix = format!("{provider_id}/");
     let base_url = format!("{}/v1", waliapi_url);
 
     if let Some(obj) = config.as_object_mut() {
@@ -961,7 +962,37 @@ fn write_openclaw(
                     .entry("models".to_string())
                     .or_insert_with(|| serde_json::json!({}));
                 if let Some(allow_obj) = allow.as_object_mut() {
+                    // waliapi provider 的模型目录由本网关维护：清掉历史遗留的
+                    // `waliapi/*` 条目，避免留下网关已不认识的模型名。
+                    allow_obj.retain(|key, _| !key.starts_with(&provider_prefix));
                     allow_obj.insert(model_ref.clone(), serde_json::json!({}));
+                }
+                // 模型可见性策略：OpenClaw 只把 `modelPolicy.allow` 里的模型暴露给
+                // agent，但**没有 modelPolicy 时表示不限制**（allowAny）。因此只在用户
+                // 已经配置了它的情况下维护 allow：凭空新建一个只含本网关模型的白名单，
+                // 会把该用户其它 provider 的模型全部挡掉。
+                if let Some(policy) = defaults_obj.get_mut("modelPolicy") {
+                    let Some(policy_obj) = policy.as_object_mut() else {
+                        return Err(
+                            "OpenClaw 的 agents.defaults.modelPolicy 不是对象，已取消写入以保护原配置"
+                                .to_string(),
+                        );
+                    };
+                    let policy_allow = policy_obj
+                        .entry("allow".to_string())
+                        .or_insert_with(|| serde_json::json!([]));
+                    let Some(policy_allow_arr) = policy_allow.as_array_mut() else {
+                        return Err(
+                            "OpenClaw 的 agents.defaults.modelPolicy.allow 不是数组，已取消写入以保护原配置"
+                                .to_string(),
+                        );
+                    };
+                    policy_allow_arr.retain(|item| {
+                        item.as_str()
+                            .map(|value| !value.starts_with(&provider_prefix))
+                            .unwrap_or(true)
+                    });
+                    policy_allow_arr.push(serde_json::json!(model_ref.clone()));
                 }
             }
         }
@@ -1916,6 +1947,65 @@ mod tests {
             config.get("_waliapi").is_none(),
             "OpenClaw 对根级未知键严格校验，不能写 _waliapi 标记"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// OpenClaw 只把 `modelPolicy.allow` 里的模型暴露给 agent。若只写 provider
+    /// 目录而不同步 allow，选中的模型不可见，agent 会退回 allow 里的旧条目
+    /// （历史遗留的模型名），向网关请求一个没有候选的模型并进入 cooldown。
+    #[test]
+    fn openclaw_config_syncs_model_policy_allowlist() {
+        let dir = temp_dir("openclaw-policy");
+        let path = dir.join("openclaw.json");
+        fs::write(
+            &path,
+            br#"{"agents":{"defaults":{"modelPolicy":{"allow":["cliproxy/gpt-5.2","waliapi/wali","zai/glm-4.7"]},"models":{"cliproxy/gpt-5.2":{},"waliapi/wali":{},"zai/glm-4.7":{"alias":"GLM"}}}}}"#,
+        )
+        .unwrap();
+
+        write_openclaw(&dir, "http://127.0.0.1:8777", "sk-test", "Copazk").unwrap();
+
+        let config: serde_json::Value = read_json_file(&path).unwrap();
+        let allow = config["agents"]["defaults"]["modelPolicy"]["allow"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+        // 其它 provider 的条目保留，旧 waliapi 条目换成当前模型。
+        assert!(allow.contains(&"cliproxy/gpt-5.2"), "{allow:?}");
+        assert!(allow.contains(&"zai/glm-4.7"), "{allow:?}");
+        assert!(allow.contains(&"waliapi/Copazk"), "{allow:?}");
+        assert!(!allow.contains(&"waliapi/wali"), "{allow:?}");
+
+        // agents.defaults.models 同样只保留当前 waliapi 模型，其它 provider 不动。
+        let models = config["agents"]["defaults"]["models"].as_object().unwrap();
+        assert!(models.contains_key("waliapi/Copazk"));
+        assert!(!models.contains_key("waliapi/wali"));
+        assert_eq!(models["zai/glm-4.7"]["alias"], "GLM");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 没有 `modelPolicy` 时 OpenClaw 视为“不限制”（所有已配置模型可见）。
+    /// 此时不能凭空新建白名单，否则会把用户其它 provider 的模型全部挡掉。
+    #[test]
+    fn openclaw_config_does_not_create_model_policy() {
+        let dir = temp_dir("openclaw-no-policy");
+        write_openclaw(&dir, "http://127.0.0.1:8777", "sk-test", "grok-4.7").unwrap();
+
+        let config: serde_json::Value = read_json_file(&dir.join("openclaw.json")).unwrap();
+        assert!(
+            config["agents"]["defaults"].get("modelPolicy").is_none(),
+            "不应凭空创建 modelPolicy"
+        );
+        // 主模型与 allowlist 照常写入。
+        assert_eq!(
+            config["agents"]["defaults"]["model"]["primary"],
+            "waliapi/grok-4.7"
+        );
+        assert!(config["agents"]["defaults"]["models"]
+            .get("waliapi/grok-4.7")
+            .is_some());
         let _ = fs::remove_dir_all(&dir);
     }
 
