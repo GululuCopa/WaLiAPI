@@ -175,6 +175,25 @@ fn messages_request_thinking_variants_map_reasoning_effort() {
 }
 
 #[test]
+fn messages_request_safeguards_dropped_fail_open() {
+    // Claude Code 2.1.280 在特定条件下会发送顶层 `safeguards`
+    // （`[{type, classifier_context}]`）。Chat / Responses / Gemini 都没有对应物，
+    // 整段拒绝会让会话直接无法继续，因此按 fail-open 丢弃并记录。
+    let body = json!({
+        "model": "m",
+        "messages": [{"role": "user", "content": "u"}],
+        "safeguards": [{"type": "classifier", "classifier_context": "ctx"}]
+    });
+    let prepared = CodecRegistry::messages_to_chat("m", &body).unwrap();
+    assert!(prepared.encoded_request.get("safeguards").is_none());
+    assert!(prepared
+        .report
+        .normalized
+        .iter()
+        .any(|pointer| pointer.contains("safeguards")));
+}
+
+#[test]
 fn messages_request_container_dropped_fail_open() {
     // container / context_management have no Chat equivalent; dropped and
     // recorded on the report, never rejected.
