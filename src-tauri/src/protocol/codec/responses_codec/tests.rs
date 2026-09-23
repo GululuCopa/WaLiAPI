@@ -515,6 +515,44 @@ fn chat_n_greater_than_one_is_rejected() {
 }
 
 #[test]
+fn chat_n_accepts_only_positive_integer_one() {
+    for value in [
+        serde_json::json!(0),
+        serde_json::json!(-1),
+        serde_json::json!(1.0),
+        serde_json::json!("1"),
+        serde_json::Value::Null,
+    ] {
+        let error = encode_chat_to_responses(
+            &serde_json::json!({"model": "m", "messages": [], "n": value}),
+            "m",
+        )
+        .unwrap_err();
+        assert!(error.json_pointers.contains(&"/n".to_string()));
+    }
+    assert!(encode_chat_to_responses(
+        &serde_json::json!({"model": "m", "messages": [], "n": 1}),
+        "m"
+    )
+    .is_ok());
+}
+
+#[test]
+fn chat_stop_rejects_non_string_array_elements() {
+    for value in [serde_json::json!(["END", 1]), serde_json::json!([null])] {
+        let error = encode_chat_to_responses(
+            &serde_json::json!({"model": "m", "messages": [], "stop": value}),
+            "m",
+        )
+        .unwrap_err();
+        assert!(error
+            .json_pointers
+            .iter()
+            .any(|pointer| pointer.starts_with("/stop")));
+    }
+}
+
+#[test]
 fn chat_sampling_field_types_are_validated() {
     let error = encode_chat_to_responses(
         &serde_json::json!({"model": "m", "messages": [], "temperature": "hot"}),

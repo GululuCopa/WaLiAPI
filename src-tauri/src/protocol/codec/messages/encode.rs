@@ -155,18 +155,8 @@ pub fn encode_messages_to_chat(
         chat.insert("top_p".to_string(), t.clone());
     }
     if let Some(stop) = body.get("stop_sequences") {
-        match stop {
-            Value::Array(_) => {
-                chat.insert("stop".to_string(), stop.clone());
-            }
-            _ => {
-                return Err(UnsupportedFeatures::single(
-                    FeatureKind::UnsupportedField,
-                    "/stop_sequences",
-                    "stop_sequences must be an array of strings",
-                ))
-            }
-        }
+        request::require_string_array(stop, "/stop_sequences", "stop_sequences")?;
+        chat.insert("stop".to_string(), stop.clone());
     }
     // tools
     if let Some(tools) = body.get("tools").and_then(Value::as_array) {

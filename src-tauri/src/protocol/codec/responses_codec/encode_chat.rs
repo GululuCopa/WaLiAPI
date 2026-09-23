@@ -107,13 +107,14 @@ pub fn encode_chat_to_responses(
                 "Chat parallel_tool_calls must be a boolean",
             );
         } else if key == "n" {
-            if value.as_u64().unwrap_or(1) > 1 {
-                // n > 1 会改变下游拿到的候选数量，不做静默降级。
+            if value.as_u64() != Some(1) {
+                // Responses 只表达单个候选；0、负数、浮点、字符串和 null
+                // 都不是可安全归一为默认值的 `n`。
                 request::reject(
                     &mut rejected,
                     FeatureKind::UnsupportedField,
                     "/n",
-                    "Chat n > 1 has no Responses backend representation",
+                    "Chat n must be the positive integer 1 when converting to Responses",
                 );
             } else {
                 // n == 1 与默认同义：不透传，但留下审计痕迹。
@@ -126,13 +127,12 @@ pub fn encode_chat_to_responses(
                 Ok(None) => normalized.push("/response_format".to_owned()),
                 Err(error) => rejected.extend(error.fields),
             }
-        } else if key == "stop" && !(value.is_string() || value.is_array()) {
-            request::reject(
-                &mut rejected,
-                FeatureKind::UnsupportedField,
-                "/stop",
-                "Chat stop must be a string or an array of strings",
-            );
+        } else if key == "stop" {
+            if !value.is_string() {
+                if let Err(error) = request::require_string_array(value, "/stop", "stop") {
+                    rejected.extend(error.fields);
+                }
+            }
         }
     }
 

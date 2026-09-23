@@ -24,6 +24,24 @@ fn request_drops_safeguards_fail_open() {
 }
 
 #[test]
+fn request_rejects_non_string_stop_sequence_elements() {
+    for value in [serde_json::json!(["END", 1]), serde_json::json!([null])] {
+        let error = encode_request(
+            &serde_json::json!({
+                "messages": [{"role": "user", "content": "hi"}],
+                "stop_sequences": value
+            }),
+            "m",
+        )
+        .unwrap_err();
+        assert!(error
+            .json_pointers
+            .iter()
+            .any(|pointer| pointer.starts_with("/stop_sequences")));
+    }
+}
+
+#[test]
 fn request_preserves_tool_result_id() {
     let(out,_)=encode_request(&serde_json::json!({"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"ok"}]}]}),"m").unwrap();
     assert_eq!(out["input"][0]["call_id"], "call_1");

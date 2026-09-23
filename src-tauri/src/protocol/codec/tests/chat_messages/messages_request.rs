@@ -358,6 +358,22 @@ fn messages_request_rejects_non_array_stop_sequences() {
 }
 
 #[test]
+fn messages_request_rejects_non_string_stop_sequence_elements() {
+    for value in [json!(["END", 1]), json!([null]), json!({"END": true})] {
+        let body = json!({
+            "model": "m",
+            "messages": [{"role": "user", "content": "u"}],
+            "stop_sequences": value
+        });
+        let error = CodecRegistry::messages_to_chat("m", &body).unwrap_err();
+        assert!(error
+            .json_pointers
+            .iter()
+            .any(|pointer| pointer.starts_with("/stop_sequences")));
+    }
+}
+
+#[test]
 fn messages_request_tool_choice_strings_are_mapped_not_passed_through() {
     // R9: bare Anthropic tool_choice strings map to Chat values; unknown
     // strings and a bare "tool" (which needs a name) are rejected.
