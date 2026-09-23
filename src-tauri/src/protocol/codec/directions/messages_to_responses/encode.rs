@@ -26,6 +26,9 @@ pub fn encode_request(
             "metadata" | "container" | "context_management" | "context_management_config" => {
                 normalized.push(format!("/{k}"))
             }
+            // Anthropic 的 `safeguards`（分类器上下文声明）在 Responses 里没有对应物；
+            // Claude Code 2.1.280 会在特定条件下发送它，整个拒绝会让会话无法继续。
+            "safeguards" => normalized.push(format!("/{k}")),
             other => {
                 return Err(bad(
                     FeatureKind::UnsupportedField,
