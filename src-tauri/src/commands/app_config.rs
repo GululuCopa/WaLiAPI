@@ -64,15 +64,28 @@ fn home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
+fn claude_code_config_dir_from(override_value: Option<&str>) -> PathBuf {
+    override_value
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".claude"))
+}
+
+fn claude_code_config_dir() -> PathBuf {
+    claude_code_config_dir_from(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref())
+}
+
 const APPS: &[AppDef] = &[
     AppDef {
         name: "claude-code",
         label: "Claude Code",
         icon: "terminal",
-        description: "Anthropic 的命令行 AI 编程助手，读取 ~/.claude/settings.json 中的 env 配置",
-        config_format: "JSON (~/.claude/settings.json)",
+        description:
+            "Anthropic 的命令行 AI 编程助手，读取 Claude 配置目录 settings.json 中的 env 配置",
+        config_format: "JSON ($CLAUDE_CONFIG_DIR/settings.json 或 ~/.claude/settings.json)",
         download_url: "https://docs.anthropic.com/en/docs/claude-code/overview",
-        config_dir_fn: || home_dir().join(".claude"),
+        config_dir_fn: claude_code_config_dir,
         config_file: "settings.json",
         check_installed_fn: |dir| dir.exists() || home_dir().join(".claude.json").exists(),
     },
@@ -520,11 +533,6 @@ fn secret_fingerprint(value: &str) -> String {
         .collect()
 }
 
-fn is_legacy_waliapi_settings(root: &serde_json::Map<String, serde_json::Value>) -> bool {
-    root.get("_waliapi").and_then(serde_json::Value::as_bool) == Some(true)
-        && !root.contains_key(WALIAPI_CLAUDE_SETTINGS_META)
-}
-
 /// 将 WaLiAPI 所有的字段投影到 Claude Code settings。settings.json 同时属于
 /// Claude Code 和用户，绝不能为了更新网关而整体替换 env 或 modelPicker。
 fn apply_waliapi_claude_code_settings(
@@ -544,8 +552,6 @@ fn apply_waliapi_claude_code_settings(
         .and_then(|m| m.get("managedAuthFingerprint"))
         .and_then(|f| f.as_str())
         .map(ToOwned::to_owned);
-    let legacy_settings = is_legacy_waliapi_settings(root);
-
     let env = root
         .entry("env".to_string())
         .or_insert_with(|| serde_json::json!({}))
@@ -591,20 +597,28 @@ fn apply_waliapi_claude_code_settings(
         serde_json::Value::String(waliapi_key.to_string()),
     );
     env.remove("ANTHROPIC_API_KEY");
-    // 受管模型环境变量不应覆盖 Claude Code 的 /model 持久化选择。仅删除由
-    // WaLiAPI 以前写入的值或 legacy 配置中的值；用户自行设置的覆盖原样保留。
-    if previously_managed_env
-        .iter()
-        .any(|managed| managed == "ANTHROPIC_MODEL")
-        || legacy_settings
-    {
-        env.remove("ANTHROPIC_MODEL");
+    // Claude Code 2.1.x 中 `env.ANTHROPIC_MODEL` 优先于顶层 `model`。如果旧配置
+    // 已有该变量，只更新顶层 `model` 会让网关看起来写入成功，但请求仍使用旧模型；
+    // 应用网关配置时必须同步它。未存在该变量时继续只写顶层 `model`，保留用户通过
+    // `/model` 持久化选择的语义。
+    let manage_model_env = env.contains_key("ANTHROPIC_MODEL")
+        || previously_managed_env
+            .iter()
+            .any(|managed| managed == "ANTHROPIC_MODEL");
+    if manage_model_env {
+        env.insert(
+            "ANTHROPIC_MODEL".to_string(),
+            serde_json::Value::String(model.trim().to_string()),
+        );
     }
 
     let mut managed_env_keys = vec![
         "ANTHROPIC_BASE_URL".to_string(),
         "ANTHROPIC_AUTH_TOKEN".to_string(),
     ];
+    if manage_model_env {
+        managed_env_keys.push("ANTHROPIC_MODEL".to_string());
+    }
     let compatibility = claude_code_model_compatibility(model);
     if let (Some(max_context), Some(auto_compact)) = (
         compatibility.context_tokens,
@@ -1788,10 +1802,41 @@ mod tests {
         );
         assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "sk-waliapi-test");
         assert!(settings["env"]["ANTHROPIC_API_KEY"].is_null());
+        assert_eq!(settings["env"]["ANTHROPIC_MODEL"], "gpt-5.6-luna[1m]");
         assert_eq!(settings["model"], "gpt-5.6-luna[1m]");
         assert_eq!(settings["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000");
         assert_eq!(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "360000");
         assert_eq!(settings["modelPicker"]["options"][0]["model"], "user-model");
+    }
+
+    #[test]
+    fn claude_code_projection_updates_existing_model_env_override() {
+        let mut settings = serde_json::json!({
+            "env": {"ANTHROPIC_MODEL": "old-model"},
+            "model": "old-model"
+        });
+
+        apply_waliapi_claude_code_settings(&mut settings, "http://gateway", "key", "new-model")
+            .unwrap();
+        apply_waliapi_claude_code_settings(
+            &mut settings,
+            "http://gateway/second",
+            "key-2",
+            "latest-model",
+        )
+        .unwrap();
+
+        assert_eq!(settings["env"]["ANTHROPIC_MODEL"], "latest-model");
+        assert_eq!(
+            settings["env"]["ANTHROPIC_BASE_URL"],
+            "http://gateway/second"
+        );
+        assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "key-2");
+        assert!(settings[WALIAPI_CLAUDE_SETTINGS_META]["managedEnvKeys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|key| key == "ANTHROPIC_MODEL"));
     }
 
     #[test]
@@ -1833,6 +1878,7 @@ mod tests {
         .unwrap();
 
         assert!(settings["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"].is_null());
+        assert!(settings["env"]["ANTHROPIC_MODEL"].is_null());
         assert!(settings.get("modelPicker").is_none());
         assert_eq!(
             settings[WALIAPI_CLAUDE_SETTINGS_META]["modelCompatibility"]["confidence"],
@@ -1918,6 +1964,22 @@ mod tests {
         let path = dir.join("settings.json");
         fs::write(&path, br#"{"_waliapi":true}"#).unwrap();
         assert!(!detect_applied(&path, "claude-code"));
+    }
+
+    #[test]
+    fn claude_code_config_dir_prefers_non_empty_override() {
+        assert_eq!(
+            claude_code_config_dir_from(Some("  /tmp/claude-custom  ")),
+            PathBuf::from("/tmp/claude-custom")
+        );
+        assert_eq!(
+            claude_code_config_dir_from(Some("   ")),
+            home_dir().join(".claude")
+        );
+        assert_eq!(
+            claude_code_config_dir_from(None),
+            home_dir().join(".claude")
+        );
     }
 
     #[test]
